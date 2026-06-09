@@ -1,0 +1,89 @@
+# ── OpenTelemetry Collector Configuration ──
+# Receives telemetry from AWS CloudWatch and forwards to Quickwit for storage.
+# Used by: docker compose --profile pipeline up -d
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Prometheus receiver for scraping our own metrics
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: "obs-platform"
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["app:3000"]
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1000
+
+  # Add useful attributes to all telemetry
+  attributes:
+    actions:
+      - key: environment
+        value: production
+        action: upsert
+      - key: platform
+        value: obs-platform
+        action: upsert
+
+  # Filter out unnecessary data
+  filter:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'IsMatch(name, "container.memory.working_set_bytes")'
+        - 'IsMatch(name, "container.cpu.usage")'
+
+  # Memory limiting to avoid OOM
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+exporters:
+  # Console logging for debugging
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # NATS JetStream exporter for streaming
+  nats:
+    endpoint: nats://nats:4222
+    subject: observability.telemetry
+    topic: telemetry
+
+  # Quickwit exporter for log/metric storage
+  otlphttp/quickwit:
+    endpoint: http://quickwit:7280/api/v1/otlp
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, batch, attributes]
+      exporters: [debug, nats, otlphttp/quickwit]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, attributes]
+      exporters: [debug, nats, otlphttp/quickwit]
+
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug, nats]
+
+  telemetry:
+    logs:
+      level: info

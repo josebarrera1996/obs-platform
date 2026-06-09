@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ObsPortal — DM Sans Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'DM Mono', monospace;
+      --sidebar-bg: #0a0a0f;
+      --sidebar-text: #94949e;
+      --sidebar-active: #ffffff;
+      --sidebar-accent: #00b8a9;
+      --bg: #f4f5f8;
+      --card-bg: #ffffff;
+      --border: #e8eaef;
+      --text: #16161e;
+      --text-muted: #6e6e7a;
+      --text-muted-light: #a0a0aa;
+      --badge-green: #ecfdf5;
+      --badge-green-text: #059669;
+      --badge-yellow: #fffbeb;
+      --badge-yellow-text: #d97706;
+      --badge-red: #fef2f2;
+      --badge-red-text: #dc2626;
+      --badge-blue: #eff6ff;
+      --badge-blue-text: #2563eb;
+      --indicator-green: #22c55e;
+      --indicator-yellow: #eab308;
+      --indicator-red: #ef4444;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ===== SIDEBAR ===== */
+    .sidebar {
+      width: 236px;
+      min-width: 236px;
+      background: var(--sidebar-bg);
+      color: var(--sidebar-text);
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      height: 100vh;
+    }
+
+    .sidebar-header {
+      padding: 20px 16px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-logo-icon {
+      width: 30px;
+      height: 30px;
+      background: var(--sidebar-accent);
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .sidebar-logo-text {
+      font-weight: 700;
+      font-size: 16px;
+      color: #fff;
+      letter-spacing: -0.2px;
+    }
+
+    .sidebar-logo-version {
+      font-size: 10px;
+      color: #52525b;
+      margin-left: auto;
+      font-weight: 500;
+    }
+
+    .sidebar-nav {
+      padding: 10px 8px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .nav-section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      padding: 8px 10px 6px;
+      color: #52525b;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      color: var(--sidebar-text);
+      text-decoration: none;
+    }
+
+    .nav-item:hover {
+      background: rgba(255,255,255,0.05);
+      color: #d4d4d8;
+    }
+
+    .nav-item.active {
+      background: rgba(0,184,169,0.1);
+      color: var(--sidebar-active);
+    }
+
+    .nav-item .icon {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      opacity: 0.8;
+    }
+
+    .nav-item .badge-count {
+      margin-left: auto;
+      background: rgba(255,255,255,0.06);
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .sidebar-footer {
+      padding: 14px 12px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .sidebar-footer-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+
+    .sidebar-footer-item:hover {
+      background: rgba(255,255,255,0.05);
+    }
+
+    .account-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .account-item:hover {
+      background: rgba(255,255,255,0.05);
+    }
+
+    .account-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .account-dot.green { background: var(--indicator-green); }
+    .account-dot.yellow { background: var(--indicator-yellow); }
+    .account-dot.red { background: var(--indicator-red); }
+
+    /* ===== MAIN ===== */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      height: 56px;
+      min-height: 56px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card-bg);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 12px;
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .breadcrumb > span:last-child {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .header-spacer {
+      flex: 1;
+    }
+
+    .header-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      background: var(--card-bg);
+      transition: all 0.15s;
+      font-family: var(--font-sans);
+    }
+
+    .header-btn:hover {
+      border-color: #d4d4d8;
+    }
+
+    .header-select {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+      background: var(--card-bg);
+      cursor: pointer;
+      font-family: var(--font-sans);
+    }
+
+    .notification-btn {
+      position: relative;
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      background: var(--card-bg);
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+
+    .notification-dot {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      width: 6px;
+      height: 6px;
+      background: var(--badge-red-text);
+      border-radius: 50%;
+      border: 1.5px solid var(--card-bg);
+    }
+
+    /* ===== CONTENT ===== */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+
+    /* ===== STATS ROW ===== */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+
+    .stat-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .stat-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .stat-icon.teal { background: #f0fdfa; color: #0d9488; }
+    .stat-icon.blue { background: #eff6ff; color: #2563eb; }
+    .stat-icon.red { background: #fef2f2; color: #dc2626; }
+    .stat-icon.green { background: #ecfdf5; color: #059669; }
+
+    .stat-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .stat-value {
+      font-size: 27px;
+      font-weight: 700;
+      letter-spacing: -0.8px;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .stat-change {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted-light);
+    }
+
+    .stat-change.up { color: var(--badge-green-text); }
+    .stat-change.down { color: var(--badge-red-text); }
+
+    /* ===== SECTION HEADER ===== */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+
+    .section-link {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--sidebar-accent);
+      cursor: pointer;
+    }
+
+    /* ===== INCIDENT FEED ===== */
+    .incident-feed {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .incident-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+      cursor: pointer;
+    }
+
+    .incident-item:last-child { border-bottom: none; }
+    .incident-item:hover { background: #f8f9fc; }
+
+    .incident-severity {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .incident-severity.critical { background: var(--indicator-red); }
+    .incident-severity.warning { background: var(--indicator-yellow); }
+    .incident-severity.info { background: var(--indicator-green); }
+
+    .incident-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .incident-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .incident-meta {
+      font-size: 11px;
+      color: var(--text-muted-light);
+    }
+
+    .incident-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      flex-shrink: 0;
+    }
+
+    .incident-badge.critical {
+      background: var(--badge-red);
+      color: var(--badge-red-text);
+      border: 1px solid rgba(220,38,38,0.15);
+    }
+
+    .incident-badge.warning {
+      background: var(--badge-yellow);
+      color: var(--badge-yellow-text);
+      border: 1px solid rgba(217,119,6,0.15);
+    }
+
+    .incident-badge.info {
+      background: var(--badge-blue);
+      color: var(--badge-blue-text);
+      border: 1px solid rgba(37,99,235,0.15);
+    }
+
+    .incident-time {
+      font-size: 10px;
+      color: var(--text-muted-light);
+      width: 80px;
+      text-align: right;
+      font-family: var(--font-mono);
+      flex-shrink: 0;
+      font-weight: 400;
+    }
+
+    /* ===== ACCOUNT GRID ===== */
+    .account-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    .account-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .account-card:hover {
+      border-color: #d4d4d8;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    }
+
+    .account-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .account-type-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .account-type-badge.aws { background: #fff7ed; color: #ea580c; }
+    .account-type-badge.gcp { background: #eff6ff; color: #2563eb; }
+    .account-type-badge.azure { background: #e0f2fe; color: #0284c7; }
+
+    .account-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .status-dot.healthy { background: var(--indicator-green); }
+    .status-dot.degraded { background: var(--indicator-yellow); }
+    .status-dot.down { background: var(--indicator-red); }
+
+    .account-name {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 2px;
+      letter-spacing: -0.1px;
+    }
+
+    .account-region {
+      font-size: 11px;
+      color: var(--text-muted-light);
+      margin-bottom: 12px;
+    }
+
+    .account-metrics {
+      display: flex;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    .account-metric {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .account-metric-value {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .account-metric-label {
+      font-size: 10px;
+      color: var(--text-muted-light);
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-icon">◉</div>
+        <span class="sidebar-logo-text">ObsPortal</span>
+        <span class="sidebar-logo-version">v2.4</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Main</div>
+      <a class="nav-item active" href="#">
+        <span class="icon">◆</span> Dashboard
+      </a>
+      <a class="nav-item" href="#">
+        <span class="icon">☰</span> Accounts
+        <span class="badge-count">6</span>
+      </a>
+      <a class="nav-item" href="#">
+        <span class="icon">⚠</span> Incidents
+        <span class="badge-count">3</span>
+      </a>
+      <a class="nav-item" href="#">
+        <span class="icon">⚙</span> Services
+        <span class="badge-count">24</span>
+      </a>
+
+      <div class="nav-section-label" style="margin-top:16px;">Quick Access</div>
+      <div class="account-item">
+        <span class="account-dot green"></span>
+        prod-aws
+      </div>
+      <div class="account-item">
+        <span class="account-dot green"></span>
+        staging-gcp
+      </div>
+      <div class="account-item">
+        <span class="account-dot yellow"></span>
+        legacy-azure
+      </div>
+      <div class="account-item">
+        <span class="account-dot green"></span>
+        dev-aws
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-item">
+        <span>🌙</span> Dark mode
+      </div>
+      <div class="sidebar-footer-item">
+        <span>⌨</span> Shortcuts
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- HEADER -->
+    <header class="header">
+      <div class="breadcrumb">
+        <span>ObsPortal</span>
+        <span>›</span>
+        <span>Dashboard</span>
+      </div>
+      <div class="header-spacer"></div>
+      <select class="header-select">
+        <option>Last 24 hours</option>
+        <option>Last 7 days</option>
+        <option selected>Last 30 days</option>
+        <option>Custom range</option>
+      </select>
+      <button class="header-btn">⚙ Filters</button>
+      <button class="header-btn">↓ Export</button>
+      <div class="notification-btn">
+        🔔
+        <span class="notification-dot"></span>
+      </div>
+    </header>
+
+    <!-- CONTENT -->
+    <div class="content">
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon teal">◉</div>
+            <span class="stat-label">Total Accounts</span>
+          </div>
+          <div class="stat-value">6</div>
+          <div class="stat-change up">↑ 2 new this month</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue">☰</div>
+            <span class="stat-label">Active Services</span>
+          </div>
+          <div class="stat-value">24</div>
+          <div class="stat-change up">↑ 99.2% uptime avg</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon red">⚠</div>
+            <span class="stat-label">Active Incidents</span>
+          </div>
+          <div class="stat-value">3</div>
+          <div class="stat-change down">↑ 2 critical</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green">◆</div>
+            <span class="stat-label">Overall Uptime</span>
+          </div>
+          <div class="stat-value">99.7%</div>
+          <div class="stat-change up">↑ 0.2% this period</div>
+        </div>
+      </div>
+
+      <!-- Section: Recent Incidents -->
+      <div class="section-header">
+        <span class="section-title">Recent Incidents</span>
+        <span class="section-link">View all →</span>
+      </div>
+
+      <div class="incident-feed">
+        <div class="incident-item">
+          <span class="incident-severity critical"></span>
+          <div class="incident-content">
+            <div class="incident-title">Database connection pool exhausted on prod-aws</div>
+            <div class="incident-meta">6/8/2026, 2:34 PM · open</div>
+          </div>
+          <span class="incident-badge critical">critical</span>
+          <span class="incident-time">2m ago</span>
+        </div>
+        <div class="incident-item">
+          <span class="incident-severity warning"></span>
+          <div class="incident-content">
+            <div class="incident-title">High latency detected on payment service</div>
+            <div class="incident-meta">6/8/2026, 1:15 PM · investigating</div>
+          </div>
+          <span class="incident-badge warning">warning</span>
+          <span class="incident-time">1h ago</span>
+        </div>
+        <div class="incident-item">
+          <span class="incident-severity warning"></span>
+          <div class="incident-content">
+            <div class="incident-title">Certificate expiration warning for api.example.com</div>
+            <div class="incident-meta">6/8/2026, 11:00 AM · open</div>
+          </div>
+          <span class="incident-badge warning">warning</span>
+          <span class="incident-time">3h ago</span>
+        </div>
+        <div class="incident-item">
+          <span class="incident-severity info"></span>
+          <div class="incident-content">
+            <div class="incident-title">Deployment completed: auth-service v2.4.1</div>
+            <div class="incident-meta">6/7/2026, 8:00 PM · resolved</div>
+          </div>
+          <span class="incident-badge info">info</span>
+          <span class="incident-time">1d ago</span>
+        </div>
+      </div>
+
+      <!-- Section: Accounts -->
+      <div class="section-header">
+        <span class="section-title">Accounts</span>
+        <span class="section-link">Manage →</span>
+      </div>
+
+      <div class="account-grid">
+        <div class="account-card">
+          <div class="account-card-top">
+            <span class="account-type-badge aws">☁ AWS</span>
+            <span class="account-status">
+              <span class="status-dot healthy"></span> Healthy
+            </span>
+          </div>
+          <div class="account-name">Production AWS</div>
+          <div class="account-region">us-east-1 · Virginia</div>
+          <div class="account-metrics">
+            <div class="account-metric">
+              <span class="account-metric-value">8</span>
+              <span class="account-metric-label">Services</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">1</span>
+              <span class="account-metric-label">Incidents</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">99.9%</span>
+              <span class="account-metric-label">Uptime</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="account-card">
+          <div class="account-card-top">
+            <span class="account-type-badge gcp">☁ GCP</span>
+            <span class="account-status">
+              <span class="status-dot healthy"></span> Healthy
+            </span>
+          </div>
+          <div class="account-name">Staging GCP</div>
+          <div class="account-region">us-central1 · Iowa</div>
+          <div class="account-metrics">
+            <div class="account-metric">
+              <span class="account-metric-value">6</span>
+              <span class="account-metric-label">Services</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">0</span>
+              <span class="account-metric-label">Incidents</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">99.8%</span>
+              <span class="account-metric-label">Uptime</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="account-card">
+          <div class="account-card-top">
+            <span class="account-type-badge azure">☁ Azure</span>
+            <span class="account-status">
+              <span class="status-dot degraded"></span> Degraded
+            </span>
+          </div>
+          <div class="account-name">Legacy Azure</div>
+          <div class="account-region">eastus2 · Virginia</div>
+          <div class="account-metrics">
+            <div class="account-metric">
+              <span class="account-metric-value">4</span>
+              <span class="account-metric-label">Services</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">2</span>
+              <span class="account-metric-label">Incidents</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">97.2%</span>
+              <span class="account-metric-label">Uptime</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="account-card">
+          <div class="account-card-top">
+            <span class="account-type-badge aws">☁ AWS</span>
+            <span class="account-status">
+              <span class="status-dot healthy"></span> Healthy
+            </span>
+          </div>
+          <div class="account-name">Development AWS</div>
+          <div class="account-region">eu-west-1 · Ireland</div>
+          <div class="account-metrics">
+            <div class="account-metric">
+              <span class="account-metric-value">6</span>
+              <span class="account-metric-label">Services</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">0</span>
+              <span class="account-metric-label">Incidents</span>
+            </div>
+            <div class="account-metric">
+              <span class="account-metric-value">99.9%</span>
+              <span class="account-metric-label">Uptime</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

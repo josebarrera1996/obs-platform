@@ -1,0 +1,76 @@
+# ── Quickwit Configuration ──
+# Quickwit is a fast log/metric search engine (like Elasticsearch but lighter).
+# https://quickwit.io/docs
+
+version: 0.8
+
+# Data directory for indexes
+data_dir: /quickwit/data
+
+# Listen address
+listen_address: 0.0.0.0
+rest_listen_port: 7280
+grpc_listen_port: 7281
+
+# Index configuration
+indexes:
+  - name: obs-metrics
+    # Metric index: optimized for numerical queries
+    source: otlp
+    index_type: prebuilt:otlp-metrics
+    retention:
+      period: 90 days
+    search_settings:
+      default_search_fields: [resource.service.name, metric.name]
+    aggregations:
+      - name: avg_cpu
+        metric: avg(metric.cpu.utilization)
+        interval: 5m
+      - name: avg_memory
+        metric: avg(metric.memory.utilization)
+        interval: 5m
+      - name: p95_latency
+        metric: p95(metric.latency)
+        interval: 5m
+
+  - name: obs-logs
+    source: otlp
+    index_type: prebuilt:otlp-logs
+    retention:
+      period: 30 days
+    search_settings:
+      default_search_fields: [body, resource.service.name]
+
+  - name: obs-alerts
+    description: Alert history for auditing
+    retention:
+      period: 365 days
+    search_settings:
+      default_search_fields: [alert_name, severity]
+    doc_mapping:
+      field_mappings:
+        - name: alert_name
+          type: text
+        - name: severity
+          type: text
+        - name: service_name
+          type: text
+        - name: metric_value
+          type: f64
+        - name: threshold
+          type: f64
+        - name: triggered_at
+          type: datetime
+          indexed: true
+          fast: true
+        - name: resolved_at
+          type: datetime
+          indexed: true
+          fast: false
+        - name: metadata
+          type: json
+      timestamp_field: triggered_at
+
+metastore:
+  type: sqlite
+  uri: file:///quickwit/data/metastore

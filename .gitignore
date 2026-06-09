@@ -30,6 +30,14 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# data (AWS credentials + DB storage)
+.data/
+
+# generated files
+.eslint-report.json
+build-errors.txt
+*.txt
+
 # env files (can opt-in for committing if needed)
 .env*
 
@@ -39,3 +47,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Kowa (generated per-developer — not for version control)
+kowa_project.md
+.kowa_scan.json

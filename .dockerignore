@@ -1,0 +1,11 @@
+node_modules
+.next
+.data
+.git
+.gitignore
+*.md
+.env
+.env.local
+.env.production
+docs
+public/mockup-*

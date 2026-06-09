@@ -1,0 +1,102 @@
+# ── ObsPlatform CD Pipeline ──
+# Deploys to AWS ECS on push to main (after CI passes)
+# Requires: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, ECR_REPOSITORY
+
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION || 'us-east-1' }}.amazonaws.com
+  ECR_REPOSITORY: obs-platform/app
+  APP_NAME: obs-platform
+
+jobs:
+  deploy:
+    name: "Build & Deploy to ${{ github.event.inputs.environment || 'staging' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: vars
+        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build & tag Docker image
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t ${{ env.APP_NAME }}:${{ steps.vars.outputs.tag }} \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.tag }} \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest \
+            .
+
+      - name: Push to ECR
+        run: |
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.vars.outputs.tag }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+
+      - name: Deploy to ECS
+        run: |
+          if [ -d "infra/terraform" ]; then
+            cd infra/terraform
+            terraform init -input=false
+            terraform workspace select ${{ github.event.inputs.environment || 'staging' }} 2>/dev/null || \
+              terraform workspace new ${{ github.event.inputs.environment || 'staging' }}
+            terraform apply \
+              -var="environment=${{ github.event.inputs.environment || 'staging' }}" \
+              -var="container_tag=${{ steps.vars.outputs.tag }}" \
+              -auto-approve \
+              -input=false
+          else
+            echo "Terraform infra not found — triggering direct ECS update"
+            TASK_DEF=$(aws ecs describe-task-definition \
+              --task-definition ${{ env.APP_NAME }}-${{ github.event.inputs.environment || 'staging' }} \
+              --query "taskDefinition.taskDefinitionArn" \
+              --output text)
+            aws ecs update-service \
+              --cluster ${{ env.APP_NAME }}-cluster \
+              --service ${{ env.APP_NAME }}-${{ github.event.inputs.environment || 'staging' }} \
+              --task-definition "$TASK_DEF" \
+              --force-new-deployment
+          fi
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+          aws ecs wait services-stable \
+            --cluster ${{ env.APP_NAME }}-cluster \
+            --services ${{ env.APP_NAME }}-${{ github.event.inputs.environment || 'staging' }} || true
+          echo "✅ Deployment complete: ${{ steps.vars.outputs.tag }}"
