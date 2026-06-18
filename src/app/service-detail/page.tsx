@@ -4,6 +4,14 @@ import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { MainLayout } from "@/components/MainLayout";
 import { useSettingsStore } from "@/store/settings";
+import { useProductStore } from "@/store/products";
+import { MetricQueryBuilder } from "@/components/MetricQueryBuilder";
+import { DetailPanelChart } from "@/components/DetailPanelChart";
+import { MetricPanel } from "@/types/products";
+import {
+  buildMetricsQueryParams,
+  type MetricSeriesResult,
+} from "@/lib/cloudwatch-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +44,8 @@ import {
   SlidersHorizontal,
   Check,
   ChevronDown,
+  Plus,
+  LayoutDashboard,
 } from "lucide-react";
 import {
   AreaChart,
@@ -409,7 +419,16 @@ function MetricVisibilityBar({
 function ServiceDetailContent() {
   const searchParams = useSearchParams();
   const serviceId = searchParams.get("id") || "";
+  const productIdParam = searchParams.get("productId") || "";
   const activeCredentialId = useSettingsStore((s) => s.activeCredentialId);
+  const { findResourceByServiceId, addPanel, updatePanel, removePanel } = useProductStore();
+
+  const productContext = findResourceByServiceId(
+    serviceId,
+    productIdParam || undefined
+  );
+  const panels = productContext?.resource.panels ?? [];
+  const hasProductContext = !!productContext;
 
   const [service, setService] = useState<DiscoveredService | null>(null);
   const [metrics, setMetrics] = useState<MetricResult[]>([]);
@@ -418,6 +437,13 @@ function ServiceDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState("24h");
   const [visibleMetrics, setVisibleMetrics] = useState<Record<string, boolean>>({});
+
+  // Custom panels state
+  const [panelData, setPanelData] = useState<
+    Record<string, { series: MetricSeriesResult[]; loading: boolean; error?: string }>
+  >({});
+  const [showPanelBuilder, setShowPanelBuilder] = useState(false);
+  const [editingPanel, setEditingPanel] = useState<MetricPanel | undefined>(undefined);
 
   // Fetch the service from AWS
   const fetchService = useCallback(async () => {
@@ -520,8 +546,90 @@ function ServiceDetailContent() {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (service) fetchMetrics();
-  }, [fetchMetrics]);
+    if (service && !hasProductContext) fetchMetrics();
+  }, [fetchMetrics, hasProductContext, service]);
+
+  // ── Fetch custom panel data ──
+  const fetchPanelData = useCallback(
+    async (panel: MetricPanel) => {
+      if (!activeCredentialId) return;
+
+      setPanelData((prev) => ({
+        ...prev,
+        [panel.id]: { series: [], loading: true },
+      }));
+
+      try {
+        const params = buildMetricsQueryParams({
+          credentialId: activeCredentialId,
+          namespace: panel.namespace,
+          metricName: panel.metricName,
+          stat: panel.stat,
+          dimensions: panel.dimensions,
+          matchExact: panel.matchExact ?? false,
+          timeRange,
+          period: panel.period,
+        });
+
+        const res = await fetch(`/api/aws/metrics?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        setPanelData((prev) => ({
+          ...prev,
+          [panel.id]: {
+            series: data.series ?? [],
+            loading: false,
+          },
+        }));
+      } catch (err) {
+        setPanelData((prev) => ({
+          ...prev,
+          [panel.id]: {
+            series: [],
+            loading: false,
+            error: (err as Error).message,
+          },
+        }));
+      }
+    },
+    [activeCredentialId, timeRange]
+  );
+
+  useEffect(() => {
+    if (!hasProductContext) return;
+    for (const panel of panels) {
+      fetchPanelData(panel);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panels, timeRange, activeCredentialId, hasProductContext]);
+
+  const handleSavePanel = (panel: MetricPanel) => {
+    if (!productContext) return;
+    const { product, resource } = productContext;
+    if (editingPanel) {
+      updatePanel(product.id, resource.serviceId, panel.id, panel);
+    } else {
+      addPanel(product.id, resource.serviceId, panel);
+    }
+    setShowPanelBuilder(false);
+    setEditingPanel(undefined);
+    fetchPanelData(panel);
+  };
+
+  const handleRemovePanel = (panelId: string) => {
+    if (!productContext) return;
+    removePanel(productContext.product.id, productContext.resource.serviceId, panelId);
+    setPanelData((prev) => {
+      const copy = { ...prev };
+      delete copy[panelId];
+      return copy;
+    });
+  };
+
+  const refreshPanels = () => {
+    for (const panel of panels) fetchPanelData(panel);
+  };
 
   const toggleMetric = (name: string) => {
     setVisibleMetrics((prev) => ({
@@ -580,15 +688,22 @@ function ServiceDetailContent() {
     (m) => visibleMetrics[m.name] === false
   );
 
+  const backHref = productContext
+    ? `/products/${productContext.product.id}`
+    : "/";
+  const backLabel = productContext
+    ? `Back to ${productContext.product.name}`
+    : "Back to Dashboard";
+
   return (
     <MainLayout>
       <div className="space-y-6">
         {/* ── Header ── */}
         <div className="flex items-start justify-between">
           <div className="space-y-1">
-            <Link href="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="h-4 w-4 inline mr-1" />
-              Back to Dashboard
+              {backLabel}
             </Link>
 
             {/* Service Title */}
@@ -651,11 +766,40 @@ function ServiceDetailContent() {
               variant="outline"
               size="sm"
               className="h-8 w-8 p-0"
-              onClick={fetchMetrics}
-              disabled={metricsLoading}
+              onClick={() => {
+                if (hasProductContext) refreshPanels();
+                else fetchMetrics();
+              }}
+              disabled={
+                hasProductContext
+                  ? panels.some((p) => panelData[p.id]?.loading)
+                  : metricsLoading
+              }
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${metricsLoading ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${
+                  (hasProductContext
+                    ? panels.some((p) => panelData[p.id]?.loading)
+                    : metricsLoading)
+                    ? "animate-spin"
+                    : ""
+                }`}
+              />
             </Button>
+            {hasProductContext && (
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => {
+                  setEditingPanel(undefined);
+                  setShowPanelBuilder(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Panel
+              </Button>
+            )}
           </div>
         </div>
 
@@ -675,9 +819,78 @@ function ServiceDetailContent() {
           </Card>
         )}
 
-        {/* ── Metrics Section ── */}
+        {/* ── Metrics / Panels Section ── */}
         {service && (
           <>
+            {hasProductContext ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                    <h2 className="text-sm font-semibold">Custom Panels</h2>
+                    <Badge variant="secondary" className="text-[10px] h-5">
+                      {panels.length}
+                    </Badge>
+                  </div>
+                </div>
+
+                {panels.length === 0 ? (
+                  <Card className="border-dashed">
+                    <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+                      <LayoutDashboard className="h-12 w-12 text-muted-foreground/30" />
+                      <div className="text-center">
+                        <p className="text-base font-medium">No panels configured yet</p>
+                        <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                          Add CloudWatch metric panels to build a detailed monitoring view for this resource.
+                        </p>
+                      </div>
+                      <Button
+                        onClick={() => {
+                          setEditingPanel(undefined);
+                          setShowPanelBuilder(true);
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Your First Panel
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {panels.map((panel) => {
+                      const pd = panelData[panel.id];
+                      return (
+                        <DetailPanelChart
+                          key={panel.id}
+                          panel={panel}
+                          series={pd?.series ?? []}
+                          loading={pd?.loading ?? true}
+                          error={pd?.error}
+                          onEdit={() => {
+                            setEditingPanel(panel);
+                            setShowPanelBuilder(true);
+                          }}
+                          onRemove={() => handleRemovePanel(panel.id)}
+                        />
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      className="border-2 border-dashed border-border/50 rounded-xl flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all min-h-[280px]"
+                      onClick={() => {
+                        setEditingPanel(undefined);
+                        setShowPanelBuilder(true);
+                      }}
+                    >
+                      <Plus className="h-8 w-8 opacity-40" />
+                      <span className="text-sm font-medium">Add Panel</span>
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
             {/* Metric Controls Bar */}
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-muted-foreground">
@@ -709,19 +922,14 @@ function ServiceDetailContent() {
                 ))}
               </div>
             ) : metricCards.length === 0 ? (
-              /* Empty state */
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12 gap-3">
                   <Activity className="h-12 w-12 text-muted-foreground/30" />
                   <p className="text-sm text-muted-foreground">No metrics available for this service</p>
-                  <p className="text-xs text-muted-foreground/60">
-                    Metrics may take a few minutes to appear after the service starts emitting data
-                  </p>
                 </CardContent>
               </Card>
             ) : (
               <>
-                {/* Visible Metrics Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {visibleMetricsList.map((m) => (
                     <EnhancedMetricChart
@@ -738,7 +946,6 @@ function ServiceDetailContent() {
                   ))}
                 </div>
 
-                {/* Hidden Metrics (collapsed) */}
                 {hiddenMetricsList.length > 0 && (
                   <Card className="border-dashed">
                     <CardContent className="p-3">
@@ -761,6 +968,8 @@ function ServiceDetailContent() {
                     </CardContent>
                   </Card>
                 )}
+              </>
+            )}
               </>
             )}
 
@@ -794,13 +1003,21 @@ function ServiceDetailContent() {
                     <p className="text-sm mt-0.5 capitalize">{service.status}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Available Metrics</p>
-                    <p className="text-sm mt-0.5">{service.metrics.length}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {hasProductContext ? "Configured Panels" : "Available Metrics"}
+                    </p>
+                    <p className="text-sm mt-0.5">
+                      {hasProductContext ? panels.length : service.metrics.length}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Metrics with Data</p>
+                    <p className="text-xs text-muted-foreground">
+                      {hasProductContext ? "Panels with Data" : "Metrics with Data"}
+                    </p>
                     <p className="text-sm mt-0.5">
-                      {metricCards.filter((m) => m.hasData).length}
+                      {hasProductContext
+                        ? panels.filter((p) => (panelData[p.id]?.series?.length ?? 0) > 0).length
+                        : metricCards.filter((m) => m.hasData).length}
                     </p>
                   </div>
                   <div>
@@ -813,6 +1030,21 @@ function ServiceDetailContent() {
           </>
         )}
       </div>
+
+      {activeCredentialId && productContext && showPanelBuilder && (
+        <MetricQueryBuilder
+          open={showPanelBuilder}
+          onClose={() => {
+            setShowPanelBuilder(false);
+            setEditingPanel(undefined);
+          }}
+          onSave={handleSavePanel}
+          initialPanel={editingPanel}
+          credentialId={activeCredentialId}
+          defaultNamespace={productContext.resource.namespace}
+          defaultDimensions={productContext.resource.dimensions}
+        />
+      )}
     </MainLayout>
   );
 }

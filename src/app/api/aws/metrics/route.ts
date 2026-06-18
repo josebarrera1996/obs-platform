@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCredentialById } from "@/lib/storage";
+import {
+  parseDimensionsFromQuery,
+  queryCloudWatchMetric,
+  type CloudWatchStat,
+} from "@/lib/cloudwatch-query";
 import { CloudWatchClient, GetMetricStatisticsCommand } from "@aws-sdk/client-cloudwatch";
 
 export const dynamic = "force-dynamic";
@@ -289,44 +294,59 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Also support GET for single metric queries (backward compat)
+async function resolveCredential(credentialId: string | null) {
+  if (credentialId) {
+    const cred = await getCredentialById(credentialId);
+    if (cred) return cred;
+  }
+  const { promises: fs } = await import("fs");
+  const pathMod = await import("path");
+  const dataDir = process.env.OBS_DATA_DIR || pathMod.join(process.cwd(), ".data");
+  const metaPath = pathMod.join(dataDir, "credentials.json");
+  try {
+    const raw = await fs.readFile(metaPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const firstId = Array.isArray(parsed) ? parsed[0]?.id : null;
+    if (firstId) return getCredentialById(firstId);
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+// GET — single or multi-series metric query (Grafana-compatible matchExact)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const namespace = searchParams.get("namespace");
     const metricName = searchParams.get("metricName");
-    const dimensionName = searchParams.get("dimensionName");
-    const dimensionValue = searchParams.get("dimensionValue");
     const timeRange = searchParams.get("timeRange") || "24h";
-    const stat = searchParams.get("stat") || "Average";
+    const stat = (searchParams.get("stat") || "Average") as CloudWatchStat;
+    const matchExact = searchParams.get("matchExact") === "true";
+    const periodParam = searchParams.get("period");
+    const period = periodParam ? parseInt(periodParam, 10) : undefined;
 
-    if (!namespace || !metricName || !dimensionName || !dimensionValue) {
+    const dimensions = parseDimensionsFromQuery(
+      searchParams.get("dimensions"),
+      searchParams.get("dimensionName"),
+      searchParams.get("dimensionValue")
+    );
+
+    if (!namespace || !metricName) {
       return NextResponse.json(
-        { error: "Missing required params: namespace, metricName, dimensionName, dimensionValue" },
+        { error: "Missing required params: namespace, metricName" },
         { status: 400 }
       );
     }
 
-    // Use credentialId from query, or try first available
-    const credentialId = searchParams.get("credentialId");
-    let cred;
-    if (credentialId) {
-      cred = await getCredentialById(credentialId);
-    }
-    // Fallback: try to read first credential
-    if (!cred) {
-      const { promises: fs } = await import("fs");
-      const pathMod = await import("path");
-      const dataDir = process.env.OBS_DATA_DIR || pathMod.join(process.cwd(), ".data");
-      const metaPath = pathMod.join(dataDir, "credentials.json");
-      try {
-        const raw = await fs.readFile(metaPath, "utf-8");
-        const parsed = JSON.parse(raw);
-        const firstId = Array.isArray(parsed) ? parsed[0]?.id : null;
-        if (firstId) cred = await getCredentialById(firstId);
-      } catch { /* ignore */ }
+    if (Object.keys(dimensions).length === 0) {
+      return NextResponse.json(
+        { error: "Missing dimensions (use dimensions JSON or dimensionName/dimensionValue)" },
+        { status: 400 }
+      );
     }
 
+    const cred = await resolveCredential(searchParams.get("credentialId"));
     if (!cred) {
       return NextResponse.json({ error: "No AWS credentials" }, { status: 400 });
     }
@@ -339,40 +359,30 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const period = DEFAULT_PERIODS[timeRange] || 3600;
-    const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - (TIME_RANGES[timeRange] || 86400) * 1000);
-
-    const stats: ("Average" | "Minimum" | "Maximum")[] = ["Average", "Minimum", "Maximum"];
-    const cmd = new GetMetricStatisticsCommand({
-      Namespace: namespace,
-      MetricName: metricName,
-      Dimensions: [{ Name: dimensionName, Value: dimensionValue }],
-      StartTime: startTime,
-      EndTime: endTime,
-      Period: period,
-      Statistics: stats,
+    const result = await queryCloudWatchMetric({
+      client,
+      namespace,
+      metricName,
+      dimensions,
+      stat,
+      timeRange,
+      period,
+      matchExact,
     });
 
-    const resp = await client.send(cmd);
-    const rawDatapoints = (resp.Datapoints || []).sort(
-      (a, b) => (a.Timestamp?.getTime() || 0) - (b.Timestamp?.getTime() || 0)
-    );
-
-    const statsMap: Record<string, { timestamp: string; value: number }[]> = {};
-    for (const s of stats) {
-      statsMap[s] = rawDatapoints.map((dp) => ({
-        timestamp: dp.Timestamp?.toISOString() || "",
-        value: (dp[s as keyof typeof dp] as number) || 0,
-      }));
-    }
+    // Backward-compat statsMap for first series
+    const statsMap: Record<string, { timestamp: string; value: number }[]> = {
+      [stat]: result.datapoints,
+    };
 
     return NextResponse.json({
-      datapoints: statsMap[stat] || [],
+      datapoints: result.datapoints,
+      series: result.series,
       statsMap,
-      label: `${namespace} ${metricName}`,
-      period,
+      label: result.label,
+      period: result.period,
       unit: searchParams.get("unit") || "Percent",
+      matchExact,
     });
   } catch (error) {
     console.error("GET /api/aws/metrics error:", error);

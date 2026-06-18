@@ -1,9 +1,33 @@
+export interface MetricPanel {
+  id: string;
+  title?: string;
+  namespace: string;
+  metricName: string;
+  stat: string;
+  dimensions: Record<string, string>;
+  period?: number;
+  unit?: string;
+  /** When false (Grafana default), partial dimensions match all series */
+  matchExact?: boolean;
+}
+
 export interface ProductResource {
   serviceId: string;
   serviceName: string;
   namespace: string;
   type: string;
   region: string;
+  /** CloudWatch dimensions discovered for this resource (e.g. ECS ClusterName + ServiceName) */
+  dimensions?: Record<string, string>;
+  panels?: MetricPanel[];
+  /** Optional group for organizing resources in the product overview */
+  groupId?: string;
+}
+
+export interface ResourceGroup {
+  id: string;
+  name: string;
+  color?: string;
 }
 
 export interface Product {
@@ -12,6 +36,7 @@ export interface Product {
   description: string;
   color: string;
   resources: ProductResource[];
+  resourceGroups?: ResourceGroup[];
   createdAt: string;
   updatedAt: string;
 }
