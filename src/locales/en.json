@@ -1,0 +1,22 @@
+{
+  "welcome": "Welcome",
+  "home": "Home",
+  "search": "Search",
+  "filters": "Filters",
+  "export": "Export",
+  "notifications": "Notifications",
+  "dashboard": "Dashboard",
+  "products": "Products",
+  "pipeline": "Pipeline",
+  "insights": "Insights",
+  "incidents": "Incidents",
+  "status": "Status",
+  "settings": "Settings",
+  "accounts": "Accounts",
+  "no_accounts_found": "No accounts found",
+  "add_credentials_in_settings": "Add credentials in Settings",
+  "light_mode": "Light Mode",
+  "dark_mode": "Dark Mode",
+  "toggle_mode": "Toggle {{mode}} Mode",
+  "no_recent_incidents": "No recent incidents"
+}

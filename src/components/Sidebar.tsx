@@ -27,9 +27,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSettingsStore } from "@/store/settings";
+import { useTranslation } from "react-i18next";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const { theme, setTheme } = useTheme();
   const awsAccounts = useSettingsStore((s) => s.accounts);
@@ -44,37 +46,37 @@ export function Sidebar() {
 
   const navItems = [
     {
-      label: "Dashboard",
+      label: t("dashboard"),
       href: "/",
       icon: LayoutDashboard,
     },
     {
-      label: "Products",
+      label: t("products"),
       href: "/products",
       icon: Package,
     },
     {
-      label: "Pipeline",
+      label: t("pipeline"),
       href: "/pipeline",
       icon: Database,
     },
     {
-      label: "Insights",
+      label: t("insights"),
       href: "/insights",
       icon: Activity,
     },
     {
-      label: "Incidents",
+      label: t("incidents"),
       href: "/incidents",
       icon: AlertTriangle,
     },
     {
-      label: "Status",
+      label: t("status"),
       href: "/status",
       icon: Heart,
     },
     {
-      label: "Settings",
+      label: t("settings"),
       href: "/settings",
       icon: Settings,
     },
@@ -145,13 +147,13 @@ export function Sidebar() {
         {/* Accounts Section */}
         {!collapsed && (
           <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-            Accounts
+            {t("accounts")}
           </p>
         )}
         <nav className="space-y-1">
           {awsAccounts.length === 0 && (
             <p className="px-3 py-2 text-xs text-sidebar-foreground/40">
-              {activeCredentialId ? "No accounts found" : "Add credentials in Settings"}
+              {activeCredentialId ? t("no_accounts_found") : t("add_credentials_in_settings")}
             </p>
           )}
           {awsAccounts.map((account) => {
@@ -207,14 +209,14 @@ export function Sidebar() {
                     <Moon className="h-4 w-4 shrink-0" />
                   )}
                   {!collapsed && (
-                    <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+                    <span>{theme === "dark" ? t("light_mode") : t("dark_mode")}</span>
                   )}
                 </button>
               }
             />
             {collapsed && (
               <TooltipContent side="right">
-                Toggle {theme === "dark" ? "Light" : "Dark"} Mode
+                {t("toggle_mode", { mode: theme === "dark" ? t("light_mode") : t("dark_mode") })}
               </TooltipContent>
             )}
           </Tooltip>

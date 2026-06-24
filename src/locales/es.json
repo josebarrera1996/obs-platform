@@ -1,0 +1,22 @@
+{
+  "welcome": "Bienvenido",
+  "home": "Inicio",
+  "search": "Buscar",
+  "filters": "Filtros",
+  "export": "Exportar",
+  "notifications": "Notificaciones",
+  "dashboard": "Tablero",
+  "products": "Productos",
+  "pipeline": "Pipelines",
+  "insights": "Insights",
+  "incidents": "Incidentes",
+  "status": "Estado",
+  "settings": "Ajustes",
+  "accounts": "Cuentas",
+  "no_accounts_found": "No se encontraron cuentas",
+  "add_credentials_in_settings": "Agrega credenciales en Ajustes",
+  "light_mode": "Modo Claro",
+  "dark_mode": "Modo Oscuro",
+  "toggle_mode": "Alternar modo {{mode}}",
+  "no_recent_incidents": "No hay incidentes recientes"
+}
