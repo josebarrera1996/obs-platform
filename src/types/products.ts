@@ -1,6 +1,8 @@
 export interface MetricPanel {
   id: string;
   title?: string;
+  /** Discriminator; omitted on legacy panels (= metric) */
+  type?: "metric";
   namespace: string;
   metricName: string;
   stat: string;
@@ -11,6 +13,29 @@ export interface MetricPanel {
   matchExact?: boolean;
 }
 
+export interface LogPanel {
+  id: string;
+  title?: string;
+  type: "logs";
+  /** CloudWatch log group names (e.g. /aws/lambda/my-fn) */
+  logGroupNames: string[];
+  /** Logs Insights QL query string */
+  query: string;
+  region?: string;
+  timeRange?: string;
+  limit?: number;
+}
+
+export type ResourcePanel = MetricPanel | LogPanel;
+
+export function isMetricPanel(panel: ResourcePanel): panel is MetricPanel {
+  return panel.type !== "logs";
+}
+
+export function isLogPanel(panel: ResourcePanel): panel is LogPanel {
+  return panel.type === "logs";
+}
+
 export interface ProductResource {
   serviceId: string;
   serviceName: string;
@@ -19,7 +44,7 @@ export interface ProductResource {
   region: string;
   /** CloudWatch dimensions discovered for this resource (e.g. ECS ClusterName + ServiceName) */
   dimensions?: Record<string, string>;
-  panels?: MetricPanel[];
+  panels?: ResourcePanel[];
   /** Optional group for organizing resources in the product overview */
   groupId?: string;
 }

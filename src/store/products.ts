@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { Product, ProductResource, MetricPanel, ResourceGroup } from "@/types/products";
+import { Product, ProductResource, ResourcePanel, ResourceGroup } from "@/types/products";
 
 interface ProductState {
   products: Product[];
@@ -18,10 +18,10 @@ interface ProductState {
     productId?: string
   ) => { product: Product; resource: ProductResource } | undefined;
   // Panel management (per resource)
-  addPanel: (productId: string, serviceId: string, panel: MetricPanel) => void;
-  updatePanel: (productId: string, serviceId: string, panelId: string, updates: Partial<MetricPanel>) => void;
+  addPanel: (productId: string, serviceId: string, panel: ResourcePanel) => void;
+  updatePanel: (productId: string, serviceId: string, panelId: string, updates: Partial<ResourcePanel>) => void;
   removePanel: (productId: string, serviceId: string, panelId: string) => void;
-  setResourcePanels: (productId: string, serviceId: string, panels: MetricPanel[]) => void;
+  setResourcePanels: (productId: string, serviceId: string, panels: ResourcePanel[]) => void;
   addResourceGroup: (productId: string, name: string, color?: string) => ResourceGroup;
   updateResourceGroup: (
     productId: string,
@@ -162,7 +162,9 @@ export const useProductStore = create<ProductState>()(
                   ? {
                       ...r,
                       panels: (r.panels ?? []).map((panel) =>
-                        panel.id === panelId ? { ...panel, ...updates } : panel
+                        panel.id === panelId
+                          ? ({ ...panel, ...updates } as ResourcePanel)
+                          : panel
                       ),
                     }
                   : r

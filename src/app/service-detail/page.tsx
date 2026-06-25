@@ -6,8 +6,18 @@ import { MainLayout } from "@/components/MainLayout";
 import { useSettingsStore } from "@/store/settings";
 import { useProductStore } from "@/store/products";
 import { MetricQueryBuilder } from "@/components/MetricQueryBuilder";
+import { LogQueryBuilder } from "@/components/LogQueryBuilder";
 import { DetailPanelChart } from "@/components/DetailPanelChart";
-import { MetricPanel } from "@/types/products";
+import { DetailPanelLogs } from "@/components/DetailPanelLogs";
+import {
+  MetricPanel,
+  LogPanel,
+  ResourcePanel,
+  isMetricPanel,
+  isLogPanel,
+} from "@/types/products";
+import { suggestLogGroupsForService } from "@/lib/cloudwatch-logs";
+import type { LogRecord } from "@/lib/cloudwatch-logs";
 import {
   buildMetricsQueryParams,
   type MetricSeriesResult,
@@ -46,6 +56,8 @@ import {
   ChevronDown,
   Plus,
   LayoutDashboard,
+  ScrollText,
+  BarChart3,
 } from "lucide-react";
 import {
   AreaChart,
@@ -442,8 +454,11 @@ function ServiceDetailContent() {
   const [panelData, setPanelData] = useState<
     Record<string, { series: MetricSeriesResult[]; loading: boolean; error?: string }>
   >({});
-  const [showPanelBuilder, setShowPanelBuilder] = useState(false);
-  const [editingPanel, setEditingPanel] = useState<MetricPanel | undefined>(undefined);
+  const [logPanelData, setLogPanelData] = useState<
+    Record<string, { records: LogRecord[]; loading: boolean; error?: string }>
+  >({});
+  const [panelBuilderMode, setPanelBuilderMode] = useState<"metric" | "logs" | null>(null);
+  const [editingPanel, setEditingPanel] = useState<ResourcePanel | undefined>(undefined);
 
   // Fetch the service from AWS
   const fetchService = useCallback(async () => {
@@ -596,25 +611,85 @@ function ServiceDetailContent() {
     [activeCredentialId, timeRange]
   );
 
+  const fetchLogPanelData = useCallback(
+    async (panel: LogPanel) => {
+      if (!activeCredentialId) return;
+
+      setLogPanelData((prev) => ({
+        ...prev,
+        [panel.id]: { records: [], loading: true },
+      }));
+
+      try {
+        const res = await fetch("/api/aws/logs/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            credentialId: activeCredentialId,
+            logGroupNames: panel.logGroupNames,
+            query: panel.query,
+            timeRange: panel.timeRange ?? timeRange,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setLogPanelData((prev) => ({
+          ...prev,
+          [panel.id]: { records: data.records ?? [], loading: false },
+        }));
+      } catch (err) {
+        setLogPanelData((prev) => ({
+          ...prev,
+          [panel.id]: {
+            records: [],
+            loading: false,
+            error: (err as Error).message,
+          },
+        }));
+      }
+    },
+    [activeCredentialId, timeRange]
+  );
+
   useEffect(() => {
     if (!hasProductContext) return;
     for (const panel of panels) {
-      fetchPanelData(panel);
+      if (isMetricPanel(panel)) fetchPanelData(panel);
+      else if (isLogPanel(panel)) fetchLogPanelData(panel);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panels, timeRange, activeCredentialId, hasProductContext]);
 
-  const handleSavePanel = (panel: MetricPanel) => {
+  const closePanelBuilder = () => {
+    setPanelBuilderMode(null);
+    setEditingPanel(undefined);
+  };
+
+  const handleSaveMetricPanel = (panel: MetricPanel) => {
     if (!productContext) return;
     const { product, resource } = productContext;
-    if (editingPanel) {
+    if (editingPanel && isMetricPanel(editingPanel)) {
       updatePanel(product.id, resource.serviceId, panel.id, panel);
     } else {
       addPanel(product.id, resource.serviceId, panel);
     }
-    setShowPanelBuilder(false);
-    setEditingPanel(undefined);
+    closePanelBuilder();
     fetchPanelData(panel);
+  };
+
+  const handleSaveLogPanel = (panel: LogPanel) => {
+    if (!productContext) return;
+    const { product, resource } = productContext;
+    if (editingPanel && isLogPanel(editingPanel)) {
+      updatePanel(product.id, resource.serviceId, panel.id, panel);
+    } else {
+      addPanel(product.id, resource.serviceId, panel);
+    }
+    closePanelBuilder();
+    fetchLogPanelData(panel);
   };
 
   const handleRemovePanel = (panelId: string) => {
@@ -625,11 +700,31 @@ function ServiceDetailContent() {
       delete copy[panelId];
       return copy;
     });
+    setLogPanelData((prev) => {
+      const copy = { ...prev };
+      delete copy[panelId];
+      return copy;
+    });
   };
 
   const refreshPanels = () => {
-    for (const panel of panels) fetchPanelData(panel);
+    for (const panel of panels) {
+      if (isMetricPanel(panel)) fetchPanelData(panel);
+      else if (isLogPanel(panel)) fetchLogPanelData(panel);
+    }
   };
+
+  const isAnyPanelLoading =
+    panels.some((p) =>
+      isMetricPanel(p)
+        ? panelData[p.id]?.loading
+        : logPanelData[p.id]?.loading
+    ) ?? false;
+
+  const defaultLogGroups =
+    service && productContext
+      ? suggestLogGroupsForService(productContext.resource.type, service.id)
+      : [];
 
   const toggleMetric = (name: string) => {
     setVisibleMetrics((prev) => ({
@@ -771,34 +866,44 @@ function ServiceDetailContent() {
                 else fetchMetrics();
               }}
               disabled={
-                hasProductContext
-                  ? panels.some((p) => panelData[p.id]?.loading)
-                  : metricsLoading
+                hasProductContext ? isAnyPanelLoading : metricsLoading
               }
             >
               <RefreshCw
                 className={`h-3.5 w-3.5 ${
-                  (hasProductContext
-                    ? panels.some((p) => panelData[p.id]?.loading)
-                    : metricsLoading)
+                  (hasProductContext ? isAnyPanelLoading : metricsLoading)
                     ? "animate-spin"
                     : ""
                 }`}
               />
             </Button>
             {hasProductContext && (
-              <Button
-                variant="default"
-                size="sm"
-                className="h-8 gap-1.5"
-                onClick={() => {
-                  setEditingPanel(undefined);
-                  setShowPanelBuilder(true);
-                }}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Panel
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  onClick={() => {
+                    setEditingPanel(undefined);
+                    setPanelBuilderMode("metric");
+                  }}
+                >
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  Metrics
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  onClick={() => {
+                    setEditingPanel(undefined);
+                    setPanelBuilderMode("logs");
+                  }}
+                >
+                  <ScrollText className="h-3.5 w-3.5" />
+                  Logs
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -841,23 +946,52 @@ function ServiceDetailContent() {
                       <div className="text-center">
                         <p className="text-base font-medium">No panels configured yet</p>
                         <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                          Add CloudWatch metric panels to build a detailed monitoring view for this resource.
+                          Add CloudWatch metric or logs panels to debug and monitor this resource.
                         </p>
                       </div>
-                      <Button
-                        onClick={() => {
-                          setEditingPanel(undefined);
-                          setShowPanelBuilder(true);
-                        }}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Your First Panel
-                      </Button>
+                      <div className="flex flex-wrap gap-2 justify-center">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setEditingPanel(undefined);
+                            setPanelBuilderMode("metric");
+                          }}
+                        >
+                          <BarChart3 className="h-4 w-4 mr-2" />
+                          Add Metrics Panel
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setEditingPanel(undefined);
+                            setPanelBuilderMode("logs");
+                          }}
+                        >
+                          <ScrollText className="h-4 w-4 mr-2" />
+                          Add Logs Panel
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {panels.map((panel) => {
+                      if (isLogPanel(panel)) {
+                        const pd = logPanelData[panel.id];
+                        return (
+                          <DetailPanelLogs
+                            key={panel.id}
+                            panel={panel}
+                            records={pd?.records ?? []}
+                            loading={pd?.loading ?? true}
+                            error={pd?.error}
+                            onEdit={() => {
+                              setEditingPanel(panel);
+                              setPanelBuilderMode("logs");
+                            }}
+                            onRemove={() => handleRemovePanel(panel.id)}
+                          />
+                        );
+                      }
                       const pd = panelData[panel.id];
                       return (
                         <DetailPanelChart
@@ -868,24 +1002,37 @@ function ServiceDetailContent() {
                           error={pd?.error}
                           onEdit={() => {
                             setEditingPanel(panel);
-                            setShowPanelBuilder(true);
+                            setPanelBuilderMode("metric");
                           }}
                           onRemove={() => handleRemovePanel(panel.id)}
                         />
                       );
                     })}
 
-                    <button
-                      type="button"
-                      className="border-2 border-dashed border-border/50 rounded-xl flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all min-h-[280px]"
-                      onClick={() => {
-                        setEditingPanel(undefined);
-                        setShowPanelBuilder(true);
-                      }}
-                    >
-                      <Plus className="h-8 w-8 opacity-40" />
-                      <span className="text-sm font-medium">Add Panel</span>
-                    </button>
+                    <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <button
+                        type="button"
+                        className="border-2 border-dashed border-border/50 rounded-xl flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all"
+                        onClick={() => {
+                          setEditingPanel(undefined);
+                          setPanelBuilderMode("metric");
+                        }}
+                      >
+                        <BarChart3 className="h-7 w-7 opacity-40" />
+                        <span className="text-sm font-medium">Add Metrics Panel</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="border-2 border-dashed border-border/50 rounded-xl flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground hover:border-cyan-500/40 hover:text-cyan-500 hover:bg-cyan-500/5 transition-all"
+                        onClick={() => {
+                          setEditingPanel(undefined);
+                          setPanelBuilderMode("logs");
+                        }}
+                      >
+                        <ScrollText className="h-7 w-7 opacity-40" />
+                        <span className="text-sm font-medium">Add Logs Panel</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </>
@@ -1016,7 +1163,11 @@ function ServiceDetailContent() {
                     </p>
                     <p className="text-sm mt-0.5">
                       {hasProductContext
-                        ? panels.filter((p) => (panelData[p.id]?.series?.length ?? 0) > 0).length
+                        ? panels.filter((p) =>
+                            isMetricPanel(p)
+                              ? (panelData[p.id]?.series?.length ?? 0) > 0
+                              : (logPanelData[p.id]?.records?.length ?? 0) > 0
+                          ).length
                         : metricCards.filter((m) => m.hasData).length}
                     </p>
                   </div>
@@ -1031,18 +1182,29 @@ function ServiceDetailContent() {
         )}
       </div>
 
-      {activeCredentialId && productContext && showPanelBuilder && (
+      {activeCredentialId && productContext && panelBuilderMode === "metric" && (
         <MetricQueryBuilder
-          open={showPanelBuilder}
-          onClose={() => {
-            setShowPanelBuilder(false);
-            setEditingPanel(undefined);
-          }}
-          onSave={handleSavePanel}
-          initialPanel={editingPanel}
+          open={panelBuilderMode === "metric"}
+          onClose={closePanelBuilder}
+          onSave={handleSaveMetricPanel}
+          initialPanel={
+            editingPanel && isMetricPanel(editingPanel) ? editingPanel : undefined
+          }
           credentialId={activeCredentialId}
           defaultNamespace={productContext.resource.namespace}
           defaultDimensions={productContext.resource.dimensions}
+        />
+      )}
+
+      {activeCredentialId && productContext && panelBuilderMode === "logs" && (
+        <LogQueryBuilder
+          open={panelBuilderMode === "logs"}
+          onClose={closePanelBuilder}
+          onSave={handleSaveLogPanel}
+          initialPanel={editingPanel && isLogPanel(editingPanel) ? editingPanel : undefined}
+          credentialId={activeCredentialId}
+          defaultLogGroups={defaultLogGroups}
+          serviceType={productContext.resource.type}
         />
       )}
     </MainLayout>

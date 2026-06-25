@@ -60,12 +60,14 @@ import {
   Boxes,
   FolderTree,
   Pencil,
+  ScrollText,
 } from "lucide-react";
 import Link from "next/link";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/Skeleton";
-import { MetricPanel, PRODUCT_COLORS } from "@/types/products";
-import type { Product, ResourceGroup } from "@/types/products";
+import { PRODUCT_COLORS } from "@/types/products";
+import type { Product, ResourceGroup, ResourcePanel } from "@/types/products";
+import { isLogPanel, isMetricPanel } from "@/types/products";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface DiscoveredService {
@@ -252,11 +254,20 @@ function buildDimensionPreview(
 }
 
 function buildMetricPreview(
-  panels: MetricPanel[] | undefined,
+  panels: ResourcePanel[] | undefined,
   availableMetrics: { name: string; unit: string }[]
 ): MetricPreviewItem[] {
   if (panels && panels.length > 0) {
     return panels.map((panel) => {
+      if (isLogPanel(panel)) {
+        return {
+          id: panel.id,
+          label: panel.title || "Logs",
+          icon: ScrollText,
+          colorClass: "text-cyan-500 bg-cyan-500/10 ring-cyan-500/20",
+          configured: true,
+        };
+      }
       const cfg = getMetricPreview(panel.metricName);
       return {
         id: panel.id,
