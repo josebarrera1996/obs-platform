@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { MetricPanel } from "@/types/products";
 import {
   Dialog,
@@ -36,6 +36,9 @@ import {
   mergeSeriesForChart,
   type MetricSeriesResult,
 } from "@/lib/cloudwatch-query";
+import { TransformPipelineEditor } from "@/components/TransformPipelineEditor";
+import { transformMetricSeries } from "@/lib/transforms";
+import type { PanelTransform } from "@/types/transforms";
 
 const PREVIEW_COLORS = ["#6366f1", "#f97316", "#10b981", "#ef4444", "#8b5cf6", "#06b6d4"];
 
@@ -143,6 +146,9 @@ export function MetricQueryBuilder({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [hasPreview, setHasPreview] = useState(false);
+  const [transforms, setTransforms] = useState<PanelTransform[]>(
+    initialPanel?.transforms ?? []
+  );
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -170,6 +176,7 @@ export function MetricQueryBuilder({
     setHasPreview(false);
     setPreviewError(null);
     setMetricSearch("");
+    setTransforms(initialPanel?.transforms ?? []);
   }, [open, initialPanel, defaultNamespace, defaultDimensions]);
 
   // ── Fetch available metrics when namespace changes ──
@@ -302,6 +309,7 @@ export function MetricQueryBuilder({
       period,
       dimensions,
       matchExact,
+      transforms: transforms.length > 0 ? transforms : undefined,
       unit: availableMetrics.find((m) => m.metricName === metricName) ? undefined : undefined,
     };
     onSave(panel);
@@ -319,6 +327,33 @@ export function MetricQueryBuilder({
     if (!metricSearch.trim()) return true;
     return m.metricName.toLowerCase().includes(metricSearch.trim().toLowerCase());
   });
+
+  const previewFields = useMemo(() => {
+    if (previewChartData.length === 0) return ["timestamp"];
+    return Object.keys(previewChartData[0]);
+  }, [previewChartData]);
+
+  const transformedPreview = useMemo(() => {
+    if (!hasPreview || previewSeries.length === 0) {
+      return {
+        chartData: previewChartData,
+        series: previewSeries,
+        viewMode: "timeseries" as const,
+        error: null as string | null,
+      };
+    }
+    try {
+      const result = transformMetricSeries(previewSeries, transforms);
+      return { ...result, error: null as string | null };
+    } catch (err) {
+      return {
+        chartData: previewChartData,
+        series: previewSeries,
+        viewMode: "timeseries" as const,
+        error: (err as Error).message,
+      };
+    }
+  }, [hasPreview, previewSeries, previewChartData, transforms]);
 
   // ── Render ──
   return (
@@ -633,6 +668,13 @@ export function MetricQueryBuilder({
               </div>
             )}
 
+            {transformedPreview.error && (
+              <div className="flex items-center gap-2 text-xs text-red-500 bg-red-500/5 border border-red-500/20 rounded-md px-3 py-2">
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                Transform error: {transformedPreview.error}
+              </div>
+            )}
+
             <div className="h-44 rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
               {!hasPreview ? (
                 <div className="flex flex-col items-center justify-center h-full gap-1.5 text-muted-foreground">
@@ -644,9 +686,45 @@ export function MetricQueryBuilder({
                   <AlertCircle className="h-5 w-5 opacity-40" />
                   <p className="text-xs">No data returned for this query</p>
                 </div>
+              ) : transformedPreview.viewMode === "stat" ? (
+                <div className="flex flex-wrap gap-3 items-center justify-center h-full p-4">
+                  {Object.entries(transformedPreview.chartData[0] ?? {}).map(([key, val]) => (
+                    <div key={key} className="text-center px-4">
+                      <p className="text-[10px] text-muted-foreground uppercase">{key}</p>
+                      <p className="text-lg font-semibold">
+                        {typeof val === "number" ? val.toFixed(2) : String(val)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : transformedPreview.viewMode === "table" ? (
+                <div className="h-full overflow-auto">
+                  <table className="w-full text-[10px]">
+                    <thead className="sticky top-0 bg-muted/80">
+                      <tr>
+                        {Object.keys(transformedPreview.chartData[0] ?? {}).map((col) => (
+                          <th key={col} className="text-left px-2 py-1 font-medium text-muted-foreground">
+                            {col}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transformedPreview.chartData.slice(0, 20).map((row, i) => (
+                        <tr key={i} className="border-t border-border/30">
+                          {Object.keys(transformedPreview.chartData[0] ?? {}).map((col) => (
+                            <td key={col} className="px-2 py-1 font-mono truncate max-w-[120px]">
+                              {String(row[col] ?? "")}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={previewChartData} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
+                  <AreaChart data={transformedPreview.chartData} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                     <XAxis
                       dataKey="timestamp"
@@ -676,7 +754,7 @@ export function MetricQueryBuilder({
                       formatter={(v) => [typeof v === "number" ? v.toFixed(2) : v]}
                     />
                     <Legend wrapperStyle={{ fontSize: 10 }} />
-                    {previewSeries.map((s, idx) => (
+                    {transformedPreview.series.map((s, idx) => (
                       <Area
                         key={s.label}
                         type="monotone"
@@ -694,6 +772,12 @@ export function MetricQueryBuilder({
               )}
             </div>
           </div>
+
+          <TransformPipelineEditor
+            transforms={transforms}
+            onChange={setTransforms}
+            availableFields={previewFields}
+          />
         </div>
 
         <DialogFooter className="px-6 py-4 border-t border-border/60 bg-muted/20 flex items-center justify-between gap-2">
@@ -710,6 +794,11 @@ export function MetricQueryBuilder({
             {!matchExact && (
               <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30">
                 match exact off
+              </Badge>
+            )}
+            {transforms.length > 0 && (
+              <Badge variant="outline" className="text-[10px] text-violet-500 border-violet-500/30">
+                {transforms.length} transform{transforms.length !== 1 ? "s" : ""}
               </Badge>
             )}
           </div>

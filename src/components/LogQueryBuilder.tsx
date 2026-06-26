@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { LogPanel } from "@/types/products";
 import {
   Dialog,
@@ -34,6 +34,9 @@ import {
   ERROR_LOGS_QUERY,
   type LogRecord,
 } from "@/lib/cloudwatch-logs";
+import { TransformPipelineEditor } from "@/components/TransformPipelineEditor";
+import { transformLogRecords } from "@/lib/transforms";
+import type { PanelTransform } from "@/types/transforms";
 
 const TIME_RANGES = [
   { value: "1h", label: "Last hour" },
@@ -89,6 +92,9 @@ export function LogQueryBuilder({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [hasPreview, setHasPreview] = useState(false);
+  const [transforms, setTransforms] = useState<PanelTransform[]>(
+    initialPanel?.transforms ?? []
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +107,7 @@ export function LogQueryBuilder({
     setPreviewError(null);
     setGroupSearch("");
     setGroupPrefix(serviceType === "Lambda" ? "/aws/lambda/" : "");
+    setTransforms(initialPanel?.transforms ?? []);
   }, [open, initialPanel, defaultLogGroups, serviceType]);
 
   const loadLogGroups = useCallback(async () => {
@@ -181,11 +188,33 @@ export function LogQueryBuilder({
       logGroupNames,
       query: query.trim(),
       timeRange,
+      transforms: transforms.length > 0 ? transforms : undefined,
     };
     onSave(panel);
   };
 
   const canSave = logGroupNames.length > 0 && query.trim().length > 0;
+
+  const previewFields = useMemo(() => {
+    if (previewRecords.length === 0) return ["@timestamp", "@message"];
+    const keys = new Set<string>();
+    for (const r of previewRecords) {
+      for (const k of Object.keys(r)) keys.add(k);
+    }
+    return Array.from(keys);
+  }, [previewRecords]);
+
+  const transformedPreview = useMemo(() => {
+    if (!hasPreview || previewRecords.length === 0) {
+      return { records: previewRecords, error: null as string | null };
+    }
+    try {
+      const result = transformLogRecords(previewRecords, transforms);
+      return { records: result.records, error: null as string | null };
+    } catch (err) {
+      return { records: previewRecords, error: (err as Error).message };
+    }
+  }, [hasPreview, previewRecords, transforms]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -371,21 +400,33 @@ export function LogQueryBuilder({
                 {previewError}
               </div>
             )}
+            {transformedPreview.error && (
+              <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 rounded-lg p-3">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                Transform error: {transformedPreview.error}
+              </div>
+            )}
             {hasPreview && !previewError && (
               <div className="border border-border/50 rounded-lg max-h-40 overflow-auto bg-muted/20">
-                {previewRecords.length === 0 ? (
+                {transformedPreview.records.length === 0 ? (
                   <p className="text-xs text-muted-foreground p-4 text-center">No results</p>
                 ) : (
-                  previewRecords.slice(0, 8).map((r, i) => (
+                  transformedPreview.records.slice(0, 8).map((r, i) => (
                     <div key={i} className="px-3 py-2 border-b border-border/30 last:border-0 text-[10px] font-mono">
                       <span className="text-muted-foreground mr-2">{r["@timestamp"]}</span>
-                      <span className="break-all">{(r["@message"] ?? "").slice(0, 200)}</span>
+                      <span className="break-all">{(r["@message"] ?? r.message ?? JSON.stringify(r)).slice(0, 200)}</span>
                     </div>
                   ))
                 )}
               </div>
             )}
           </div>
+
+          <TransformPipelineEditor
+            transforms={transforms}
+            onChange={setTransforms}
+            availableFields={previewFields}
+          />
         </div>
 
         <DialogFooter className="px-6 py-4 border-t border-border/60 gap-2">

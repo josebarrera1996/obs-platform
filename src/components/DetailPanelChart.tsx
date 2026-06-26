@@ -1,7 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
 import { MetricPanel } from "@/types/products";
 import { MetricSeriesResult, mergeSeriesForChart } from "@/lib/cloudwatch-query";
+import { transformMetricSeries } from "@/lib/transforms";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -76,14 +78,47 @@ export function DetailPanelChart({
   onEdit,
   onRemove,
 }: DetailPanelChartProps) {
-  const chartData = mergeSeriesForChart(series);
-  const hasData = chartData.length > 0 && series.some((s) => s.datapoints.length > 0);
-  const summary = computeSummary(series);
+  const transformed = useMemo(() => {
+    if (!panel.transforms?.length) {
+      return {
+        chartData: mergeSeriesForChart(series),
+        displaySeries: series,
+        viewMode: "timeseries" as const,
+        columns: [] as string[],
+        transformError: null as string | null,
+      };
+    }
+    try {
+      const result = transformMetricSeries(series, panel.transforms);
+      return {
+        chartData: result.chartData,
+        displaySeries: result.series,
+        viewMode: result.viewMode,
+        columns: result.frame.columns,
+        transformError: null as string | null,
+      };
+    } catch (err) {
+      return {
+        chartData: mergeSeriesForChart(series),
+        displaySeries: series,
+        viewMode: "timeseries" as const,
+        columns: [] as string[],
+        transformError: (err as Error).message,
+      };
+    }
+  }, [series, panel.transforms]);
+
+  const { chartData, displaySeries, viewMode, columns, transformError } = transformed;
+  const hasData = chartData.length > 0 && displaySeries.some((s) => s.datapoints.length > 0);
+  const summary = viewMode === "timeseries" ? computeSummary(displaySeries) : null;
 
   const dimLabel = Object.entries(panel.dimensions)
     .filter(([k, v]) => k && v)
     .map(([k, v]) => `${k}=${v}`)
     .join(", ");
+
+  const tableColumns =
+    columns.length > 0 ? columns : chartData.length > 0 ? Object.keys(chartData[0]) : [];
 
   return (
     <Card className="overflow-hidden">
@@ -100,6 +135,11 @@ export function DetailPanelChart({
               {!panel.matchExact && (
                 <Badge variant="outline" className="text-[10px] h-5 text-amber-500 border-amber-500/30">
                   match exact off
+                </Badge>
+              )}
+              {panel.transforms && panel.transforms.length > 0 && (
+                <Badge variant="outline" className="text-[10px] h-5 text-violet-500 border-violet-500/30">
+                  {panel.transforms.length} transform{panel.transforms.length !== 1 ? "s" : ""}
                 </Badge>
               )}
             </div>
@@ -132,9 +172,9 @@ export function DetailPanelChart({
                 </span>
               </div>
             )}
-            {series.length > 1 && (
+            {displaySeries.length > 1 && viewMode === "timeseries" && (
               <Badge variant="outline" className="text-[10px]">
-                {series.length} series
+                {displaySeries.length} series
               </Badge>
             )}
             {onEdit && (
@@ -155,6 +195,12 @@ export function DetailPanelChart({
           </div>
         </div>
 
+        {transformError && (
+          <div className="mb-3 text-xs text-red-500 bg-red-500/5 border border-red-500/20 rounded-md px-3 py-2">
+            Transform error: {transformError}
+          </div>
+        )}
+
         {loading ? (
           <div className="h-56 flex items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/40" />
@@ -163,10 +209,56 @@ export function DetailPanelChart({
           <div className="h-56 flex items-center justify-center text-sm text-muted-foreground bg-muted/10 rounded-lg border border-dashed">
             {error}
           </div>
-        ) : !hasData ? (
+        ) : !hasData && viewMode === "timeseries" ? (
           <div className="h-56 flex flex-col items-center justify-center text-sm text-muted-foreground bg-muted/10 rounded-lg border border-dashed">
             <Activity className="h-8 w-8 mb-2 opacity-30" />
             <p>No data available for this time range</p>
+          </div>
+        ) : viewMode === "stat" ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 py-4">
+            {Object.entries(chartData[0] ?? {}).map(([key, val]) => (
+              <div
+                key={key}
+                className="rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-center"
+              >
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">
+                  {key}
+                </p>
+                <p className="text-xl font-semibold mt-1">
+                  {typeof val === "number" ? formatNumber(val) : String(val)}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : viewMode === "table" ? (
+          <div className="max-h-56 overflow-auto rounded-lg border border-border/50">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
+                <tr className="border-b border-border/50">
+                  {tableColumns.map((col) => (
+                    <th
+                      key={col}
+                      className="text-left font-medium text-muted-foreground px-3 py-2 whitespace-nowrap"
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {chartData.map((row, i) => (
+                  <tr key={i} className="border-b border-border/30 hover:bg-muted/30">
+                    {tableColumns.map((col) => (
+                      <td key={col} className="px-3 py-2 font-mono text-[11px] whitespace-nowrap">
+                        {typeof row[col] === "number"
+                          ? formatNumber(row[col] as number)
+                          : String(row[col] ?? "")}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
           <div className="h-56">
@@ -199,8 +291,8 @@ export function DetailPanelChart({
                   labelFormatter={(v) => new Date(v).toLocaleString()}
                   formatter={(v) => [typeof v === "number" ? formatNumber(v) : v]}
                 />
-                {series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
-                {series.map((s, idx) => (
+                {displaySeries.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
+                {displaySeries.map((s, idx) => (
                   <Area
                     key={s.label}
                     type="monotone"
@@ -219,7 +311,7 @@ export function DetailPanelChart({
           </div>
         )}
 
-        {summary && hasData && (
+        {summary && hasData && viewMode === "timeseries" && (
           <div className="flex items-center justify-between mt-3 text-[11px] text-muted-foreground">
             <span>
               Latest: <strong>{formatNumber(summary.latest)}</strong>

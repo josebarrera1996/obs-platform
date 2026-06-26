@@ -1,3 +1,5 @@
+import type { PanelTransform } from "@/types/transforms";
+
 export interface MetricPanel {
   id: string;
   title?: string;
@@ -11,6 +13,8 @@ export interface MetricPanel {
   unit?: string;
   /** When false (Grafana default), partial dimensions match all series */
   matchExact?: boolean;
+  /** Post-query transforms applied before visualization */
+  transforms?: PanelTransform[];
 }
 
 export interface LogPanel {
@@ -24,6 +28,7 @@ export interface LogPanel {
   region?: string;
   timeRange?: string;
   limit?: number;
+  transforms?: PanelTransform[];
 }
 
 export type ResourcePanel = MetricPanel | LogPanel;

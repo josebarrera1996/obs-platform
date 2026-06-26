@@ -1,7 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
 import { LogPanel } from "@/types/products";
 import type { LogRecord } from "@/lib/cloudwatch-logs";
+import { transformLogRecords } from "@/lib/transforms";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,11 +44,48 @@ export function DetailPanelLogs({
   onEdit,
   onRemove,
 }: DetailPanelLogsProps) {
+  const { displayRecords, columns, transformError } = useMemo(() => {
+    if (!panel.transforms?.length) {
+      return {
+        displayRecords: records,
+        columns: ["@timestamp", "@message"] as string[],
+        transformError: null as string | null,
+      };
+    }
+    try {
+      const result = transformLogRecords(records, panel.transforms);
+      const cols =
+        result.frame.columns.length > 0
+          ? result.frame.columns
+          : result.records.length > 0
+            ? Object.keys(result.records[0])
+            : ["@timestamp", "@message"];
+      return {
+        displayRecords: result.records,
+        columns: cols,
+        transformError: null as string | null,
+      };
+    } catch (err) {
+      return {
+        displayRecords: records,
+        columns: ["@timestamp", "@message"] as string[],
+        transformError: (err as Error).message,
+      };
+    }
+  }, [records, panel.transforms]);
+
   const title = panel.title || "CloudWatch Logs";
   const groupsLabel =
     panel.logGroupNames.length === 1
       ? panel.logGroupNames[0]
       : `${panel.logGroupNames.length} log groups`;
+
+  const visibleColumns =
+    columns.length > 0
+      ? columns
+      : displayRecords.length > 0
+        ? Object.keys(displayRecords[0])
+        : ["@timestamp", "@message"];
 
   return (
     <Card className="border-border/60 overflow-hidden lg:col-span-2">
@@ -59,6 +98,11 @@ export function DetailPanelLogs({
               <Badge variant="outline" className="text-[10px] h-5 bg-cyan-500/10 text-cyan-600 border-cyan-500/20">
                 Logs Insights
               </Badge>
+              {panel.transforms && panel.transforms.length > 0 && (
+                <Badge variant="outline" className="text-[10px] h-5 text-violet-500 border-violet-500/30">
+                  {panel.transforms.length} transform{panel.transforms.length !== 1 ? "s" : ""}
+                </Badge>
+              )}
             </div>
             <p className="text-[11px] text-muted-foreground mt-1 truncate font-mono">{groupsLabel}</p>
           </div>
@@ -81,6 +125,12 @@ export function DetailPanelLogs({
           </div>
         </div>
 
+        {transformError && (
+          <div className="mx-4 mt-2 text-xs text-red-500 bg-red-500/5 border border-red-500/20 rounded-md px-3 py-2">
+            Transform error: {transformError}
+          </div>
+        )}
+
         <div className="max-h-[360px] overflow-auto">
           {loading ? (
             <div className="flex items-center justify-center py-16">
@@ -88,7 +138,7 @@ export function DetailPanelLogs({
             </div>
           ) : error ? (
             <div className="p-4 text-sm text-destructive">{error}</div>
-          ) : records.length === 0 ? (
+          ) : displayRecords.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               No log entries for this time range
             </div>
@@ -96,16 +146,18 @@ export function DetailPanelLogs({
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
                 <tr className="border-b border-border/50">
-                  <th className="text-left font-medium text-muted-foreground px-4 py-2 w-44">
-                    @timestamp
-                  </th>
-                  <th className="text-left font-medium text-muted-foreground px-4 py-2">
-                    @message
-                  </th>
+                  {visibleColumns.map((col) => (
+                    <th
+                      key={col}
+                      className="text-left font-medium text-muted-foreground px-4 py-2 whitespace-nowrap"
+                    >
+                      {col}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {records.map((record, i) => {
+                {displayRecords.map((record, i) => {
                   const msg = getMessage(record);
                   const isError = /error|exception|fail|timeout/i.test(msg);
                   return (
@@ -115,12 +167,20 @@ export function DetailPanelLogs({
                         isError ? "bg-red-500/5" : ""
                       }`}
                     >
-                      <td className="px-4 py-2 align-top text-muted-foreground whitespace-nowrap font-mono text-[10px]">
-                        {formatLogTimestamp(record["@timestamp"])}
-                      </td>
-                      <td className="px-4 py-2 align-top font-mono text-[11px] break-all whitespace-pre-wrap">
-                        {msg}
-                      </td>
+                      {visibleColumns.map((col) => (
+                        <td
+                          key={col}
+                          className={`px-4 py-2 align-top font-mono text-[11px] ${
+                            col === "@timestamp"
+                              ? "text-muted-foreground whitespace-nowrap text-[10px]"
+                              : "break-all whitespace-pre-wrap"
+                          }`}
+                        >
+                          {col === "@timestamp"
+                            ? formatLogTimestamp(String(record[col] ?? ""))
+                            : String(record[col] ?? "")}
+                        </td>
+                      ))}
                     </tr>
                   );
                 })}
@@ -129,9 +189,9 @@ export function DetailPanelLogs({
           )}
         </div>
 
-        {!loading && !error && records.length > 0 && (
+        {!loading && !error && displayRecords.length > 0 && (
           <div className="px-4 py-2 border-t border-border/40 text-[10px] text-muted-foreground">
-            {records.length} entries · {panel.timeRange || "24h"}
+            {displayRecords.length} entries · {panel.timeRange || "24h"}
           </div>
         )}
       </CardContent>
