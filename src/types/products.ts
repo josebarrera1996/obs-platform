@@ -82,4 +82,12 @@ export const PRODUCT_COLORS = [
   "#ec4899", // pink
   "#14b8a6", // teal
   "#84cc16", // lime
+  "#3b82f6", // blue
+  "#a855f7", // purple
+  "#64748b", // slate
+  "#78716c", // stone
+  "#0ea5e9", // sky
+  "#22c55e", // green
+  "#eab308", // yellow
+  "#f43f5e", // rose
 ];

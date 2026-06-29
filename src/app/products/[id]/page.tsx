@@ -47,6 +47,7 @@ import {
   Loader2,
   Trash2,
   ChevronRight,
+  ChevronDown,
   LayoutDashboard,
   Cpu,
   HardDrive,
@@ -68,6 +69,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { PRODUCT_COLORS } from "@/types/products";
 import type { Product, ResourceGroup, ResourcePanel } from "@/types/products";
 import { isLogPanel, isMetricPanel } from "@/types/products";
+import { getDisplayTitle } from "@/lib/display-utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface DiscoveredService {
@@ -208,6 +210,33 @@ function getServiceIcon(type: string) {
   return SERVICE_ICONS[type] || Server;
 }
 
+function GroupColorPicker({
+  selected,
+  onChange,
+}: {
+  selected: string;
+  onChange: (color: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-9 gap-2">
+      {PRODUCT_COLORS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          aria-label={`Select color ${c}`}
+          className={`h-6 w-6 rounded-full ring-2 transition-all ${
+            selected === c
+              ? "ring-primary scale-110"
+              : "ring-transparent opacity-80 hover:opacity-100 hover:scale-105"
+          }`}
+          style={{ backgroundColor: c }}
+          onClick={() => onChange(c)}
+        />
+      ))}
+    </div>
+  );
+}
+
 function getTypeIconStyle(type: string) {
   return TYPE_ICON_STYLES[type] || "bg-primary/10 text-primary ring-primary/20";
 }
@@ -231,12 +260,6 @@ function getMetricPreview(metricName: string) {
   );
 }
 
-function getDisplayTitle(name: string, type: string) {
-  const prefix = `${type}: `;
-  if (name.startsWith(prefix)) return name.slice(prefix.length);
-  return name;
-}
-
 function buildDimensionPreview(
   dimensions: Record<string, string> | undefined
 ): DimensionPreviewItem[] {
@@ -252,6 +275,8 @@ function buildDimensionPreview(
     return { key, label: cfg.label, value, icon: cfg.icon };
   });
 }
+
+const METRIC_PREVIEW_SLOTS = 4;
 
 function buildMetricPreview(
   panels: ResourcePanel[] | undefined,
@@ -324,7 +349,7 @@ export default function ProductPage() {
   const params = useParams();
   const {
     getProduct,
-    toggleResource,
+    addResourceToProduct,
     removeResourceFromProduct,
     addResourceGroup,
     updateResourceGroup,
@@ -345,10 +370,17 @@ export default function ProductPage() {
   const [newGroupColor, setNewGroupColor] = useState(PRODUCT_COLORS[0]);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupName, setEditingGroupName] = useState("");
+  const [editingGroupColor, setEditingGroupColor] = useState(PRODUCT_COLORS[0]);
+  const [resourceToRemove, setResourceToRemove] = useState<{
+    serviceId: string;
+    label: string;
+  } | null>(null);
   const [allServices, setAllServices] = useState<DiscoveredService[]>([]);
   const [resourceLoading, setResourceLoading] = useState(false);
   const [resourceSearch, setResourceSearch] = useState("");
   const [resourceTypeFilter, setResourceTypeFilter] = useState("all");
+  const [pendingAssignments, setPendingAssignments] = useState<Set<string>>(new Set());
+  const [pendingGroupMap, setPendingGroupMap] = useState<Record<string, string | null>>({});
 
   // ── Derived ──
   const totalResources = product?.resources.length ?? 0;
@@ -424,21 +456,79 @@ export default function ProductPage() {
     if (showResourceDialog) fetchAllResources();
   }, [showResourceDialog, fetchAllResources]);
 
-  const handleToggleResource = (svc: DiscoveredService) => {
-    if (!product) return;
-    toggleResource(product.id, {
-      serviceId: svc.id,
-      serviceName: svc.name,
-      namespace: svc.namespace,
-      type: svc.type,
-      region: svc.region,
-      dimensions: svc.dimensions,
+  useEffect(() => {
+    if (showResourceDialog && product) {
+      setPendingAssignments(new Set(product.resources.map((r) => r.serviceId)));
+    }
+  }, [showResourceDialog, product]);
+
+  useEffect(() => {
+    if (showGroupDialog && product) {
+      const map: Record<string, string | null> = {};
+      for (const r of product.resources) {
+        map[r.serviceId] = r.groupId ?? null;
+      }
+      setPendingGroupMap(map);
+    }
+  }, [showGroupDialog, product]);
+
+  const handleToggleResourcePending = (svc: DiscoveredService) => {
+    setPendingAssignments((prev) => {
+      const next = new Set(prev);
+      if (next.has(svc.id)) next.delete(svc.id);
+      else next.add(svc.id);
+      return next;
     });
   };
 
-  const handleRemoveResource = (serviceId: string) => {
+  const applyResourceAssignments = () => {
     if (!product) return;
-    removeResourceFromProduct(product.id, serviceId);
+    const current = new Set(product.resources.map((r) => r.serviceId));
+    for (const id of pendingAssignments) {
+      if (!current.has(id)) {
+        const svc = allServices.find((s) => s.id === id);
+        if (svc) {
+          addResourceToProduct(product.id, {
+            serviceId: svc.id,
+            serviceName: svc.name,
+            namespace: svc.namespace,
+            type: svc.type,
+            region: svc.region,
+            dimensions: svc.dimensions,
+          });
+        }
+      }
+    }
+    for (const id of current) {
+      if (!pendingAssignments.has(id)) {
+        removeResourceFromProduct(product.id, id);
+      }
+    }
+    setShowResourceDialog(false);
+  };
+
+  const applyGroupAssignments = () => {
+    if (!product) return;
+    for (const [serviceId, groupId] of Object.entries(pendingGroupMap)) {
+      const resource = product.resources.find((r) => r.serviceId === serviceId);
+      const current = resource?.groupId ?? null;
+      if (current !== groupId) {
+        assignResourceToGroup(product.id, serviceId, groupId);
+      }
+    }
+    setShowGroupDialog(false);
+  };
+
+  const handleToggleResource = handleToggleResourcePending;
+
+  const handleRemoveResource = (serviceId: string, label: string) => {
+    setResourceToRemove({ serviceId, label });
+  };
+
+  const confirmRemoveResource = () => {
+    if (!product || !resourceToRemove) return;
+    removeResourceFromProduct(product.id, resourceToRemove.serviceId);
+    setResourceToRemove(null);
   };
 
   const handleCreateGroup = () => {
@@ -448,11 +538,27 @@ export default function ProductPage() {
     setNewGroupColor(PRODUCT_COLORS[(product.resourceGroups?.length ?? 0) % PRODUCT_COLORS.length]);
   };
 
-  const handleSaveGroupRename = (groupId: string) => {
+  const handleSaveGroupEdit = (groupId: string) => {
     if (!product || !editingGroupName.trim()) return;
-    updateResourceGroup(product.id, groupId, { name: editingGroupName.trim() });
+    updateResourceGroup(product.id, groupId, {
+      name: editingGroupName.trim(),
+      color: editingGroupColor,
+    });
     setEditingGroupId(null);
     setEditingGroupName("");
+    setEditingGroupColor(PRODUCT_COLORS[0]);
+  };
+
+  const startEditingGroup = (group: ResourceGroup) => {
+    setEditingGroupId(group.id);
+    setEditingGroupName(group.name);
+    setEditingGroupColor(group.color ?? PRODUCT_COLORS[0]);
+  };
+
+  const cancelEditingGroup = () => {
+    setEditingGroupId(null);
+    setEditingGroupName("");
+    setEditingGroupColor(PRODUCT_COLORS[0]);
   };
 
   const resourceGroups = product?.resourceGroups ?? [];
@@ -490,7 +596,9 @@ export default function ProductPage() {
   const resourceTypes = ["all", ...new Set(allServices.map((s) => s.type))];
 
   const isResourceAssigned = (serviceId: string) =>
-    product?.resources.some((r) => r.serviceId === serviceId) ?? false;
+    showResourceDialog
+      ? pendingAssignments.has(serviceId)
+      : (product?.resources.some((r) => r.serviceId === serviceId) ?? false);
 
   if (!product) {
     return (
@@ -750,7 +858,7 @@ export default function ProductPage() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
                       {sectionServices.map((svc) => {
                 const Icon = getServiceIcon(svc.type);
                 const resource = product.resources.find((r) => r.serviceId === svc.id);
@@ -759,17 +867,20 @@ export default function ProductPage() {
                 const dimensions = buildDimensionPreview(
                   resource?.dimensions ?? svc.dimensions
                 );
-                const metricItems = buildMetricPreview(panels, svc.metrics);
+                const metricItems = buildMetricPreview(panels, svc.metrics).slice(
+                  0,
+                  METRIC_PREVIEW_SLOTS
+                );
                 const displayTitle = getDisplayTitle(svc.name, svc.type);
                 const detailHref = `/service-detail?id=${encodeURIComponent(svc.id)}&productId=${encodeURIComponent(product.id)}`;
 
                 return (
-                  <div key={svc.id} className="group relative">
-                    <Link href={detailHref} className="block">
+                  <div key={svc.id} className="group relative h-full">
+                    <Link href={detailHref} className="block h-full">
                       <Card
-                        className={`border overflow-hidden transition-all duration-200 hover:shadow-md hover:border-primary/30 cursor-pointer ${getHealthBg(svc.status)}`}
+                        className={`border overflow-hidden transition-all duration-200 hover:shadow-md hover:border-primary/30 cursor-pointer h-full min-h-[460px] flex flex-col ${getHealthBg(svc.status)}`}
                       >
-                        <CardContent className="p-5">
+                        <CardContent className="p-5 flex flex-col flex-1 h-full">
                           {/* Header */}
                           <div className="flex items-start gap-4">
                             <div className="relative flex-shrink-0">
@@ -787,7 +898,7 @@ export default function ProductPage() {
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger>
-                                    <p className="text-sm font-semibold truncate pr-6 group-hover:text-primary transition-colors">
+                                    <p className="text-sm font-semibold truncate pr-16 group-hover:text-primary transition-colors">
                                       {displayTitle}
                                     </p>
                                   </TooltipTrigger>
@@ -816,12 +927,12 @@ export default function ProductPage() {
                           </div>
 
                           {/* Resource composition */}
-                          <div className="mt-4 pt-4 border-t border-border/30 space-y-3">
-                            {dimensions.length > 0 && (
-                              <div>
-                                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2">
-                                  Components
-                                </p>
+                          <div className="mt-4 pt-4 border-t border-border/30 flex-1 flex flex-col gap-3 min-h-0">
+                            <div className="min-h-[92px]">
+                              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2">
+                                Components
+                              </p>
+                              {dimensions.length > 0 ? (
                                 <div className="space-y-1.5">
                                   {dimensions.map((dim) => {
                                     const DimIcon = dim.icon;
@@ -837,7 +948,7 @@ export default function ProductPage() {
                                         <TooltipProvider>
                                           <Tooltip>
                                             <TooltipTrigger>
-                                              <span className="text-[11px] font-medium truncate ml-auto">
+                                              <span className="text-[11px] font-medium text-foreground truncate ml-auto">
                                                 {dim.value}
                                               </span>
                                             </TooltipTrigger>
@@ -850,63 +961,86 @@ export default function ProductPage() {
                                     );
                                   })}
                                 </div>
-                              </div>
-                            )}
+                              ) : (
+                                <div className="flex items-center justify-center h-[72px] rounded-md border border-dashed border-border/30 bg-muted/10 text-[11px] text-muted-foreground/60">
+                                  No components detected
+                                </div>
+                              )}
+                            </div>
 
-                            {metricItems.length > 0 && (
-                              <div>
-                                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2">
-                                  {hasPanels ? "Monitored metrics" : "Available metrics"}
-                                </p>
-                                <div className="flex flex-wrap gap-2">
-                                  {metricItems.map((metric) => {
-                                    const MetricIcon = metric.icon;
-                                    return (
-                                      <TooltipProvider key={metric.id}>
-                                        <Tooltip>
-                                          <TooltipTrigger>
+                            <div className="flex-1 flex flex-col min-h-[220px]">
+                              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2">
+                                {hasPanels ? "Monitored metrics" : "Available metrics"}
+                              </p>
+                              <div className="grid grid-cols-1 gap-2 content-start flex-1">
+                                {metricItems.length === 0 ? (
+                                  <div className="flex items-center justify-center flex-1 min-h-[180px] rounded-md border border-dashed border-border/30 bg-muted/10 text-[11px] text-muted-foreground/60">
+                                    No metrics — open detail to configure
+                                  </div>
+                                ) : (
+                                  metricItems.map((metric) => {
+                                  const MetricIcon = metric.icon;
+                                  return (
+                                    <TooltipProvider key={metric.id}>
+                                      <Tooltip>
+                                        <TooltipTrigger>
+                                          <div
+                                            className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 h-[52px] transition-colors ${
+                                              metric.configured
+                                                ? "border-border/50 bg-background/70 hover:bg-background/90"
+                                                : "border-border/30 bg-muted/15 opacity-85"
+                                            }`}
+                                          >
                                             <div
-                                              className={`flex flex-col items-center justify-center gap-1 min-w-[4.5rem] px-2 py-2 rounded-lg ring-1 transition-colors ${
+                                              className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ring-1 ${
                                                 metric.configured
-                                                  ? `${metric.colorClass} ring-current/20`
-                                                  : "bg-muted/30 text-muted-foreground ring-border/40 opacity-75"
+                                                  ? metric.colorClass
+                                                  : "bg-muted/40 text-muted-foreground ring-border/40"
                                               }`}
                                             >
                                               <MetricIcon className="h-4 w-4" />
-                                              <span className="text-[10px] font-medium text-center leading-tight line-clamp-2">
-                                                {metric.label}
-                                              </span>
-                                              {metric.stat && (
-                                                <span className="text-[9px] opacity-70 font-mono">
-                                                  {metric.stat}
-                                                </span>
-                                              )}
                                             </div>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            <p className="text-xs">
-                                              {metric.configured
-                                                ? `${metric.label} (${metric.stat ?? "configured"})`
-                                                : `${metric.label} — configure in detail view`}
-                                            </p>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </TooltipProvider>
-                                    );
-                                  })}
-                                </div>
+                                            <div className="flex-1 min-w-0 text-left">
+                                              <p className="text-xs font-semibold text-foreground truncate">
+                                                {metric.label}
+                                              </p>
+                                              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                                                {metric.configured
+                                                  ? metric.stat ?? "Configured panel"
+                                                  : "Available — add panel in detail view"}
+                                              </p>
+                                            </div>
+                                            {metric.configured ? (
+                                              <Badge
+                                                variant="outline"
+                                                className="text-[9px] h-5 shrink-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/25"
+                                              >
+                                                Live
+                                              </Badge>
+                                            ) : (
+                                              <span className="text-[9px] text-muted-foreground shrink-0">
+                                                Available
+                                              </span>
+                                            )}
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p className="text-xs">
+                                            {metric.configured
+                                              ? `${metric.label} · ${metric.stat ?? "panel active"}`
+                                              : `${metric.label} — configure in detail view`}
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  );
+                                })
+                                )}
                               </div>
-                            )}
-
-                            {dimensions.length === 0 && metricItems.length === 0 && (
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground/70 py-1">
-                                <LayoutDashboard className="h-3.5 w-3.5" />
-                                <span>No components detected — open detail to configure</span>
-                              </div>
-                            )}
+                            </div>
                           </div>
 
-                          <p className="text-[11px] text-muted-foreground/60 mt-3 pt-3 border-t border-border/30 group-hover:text-muted-foreground transition-colors flex items-center gap-1">
+                          <p className="text-[11px] text-muted-foreground/60 mt-auto pt-3 border-t border-border/30 group-hover:text-muted-foreground transition-colors flex items-center gap-1">
                             <span>View details and charts</span>
                             <ChevronRight className="h-3 w-3" />
                           </p>
@@ -914,55 +1048,74 @@ export default function ProductPage() {
                       </Card>
                     </Link>
 
-                    {/* Remove resource (hover only) */}
-                    <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    {/* Resource actions (hover) */}
+                    <div className="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                       {resourceGroups.length > 0 && (
-                        <Select
-                          value={resource?.groupId ?? "__none__"}
-                          onValueChange={(v: string | null) => {
-                            if (!v) return;
-                            assignResourceToGroup(
-                              product.id,
-                              svc.id,
-                              v === "__none__" ? null : v
-                            );
-                          }}
-                        >
-                          <SelectTrigger
-                            className="h-7 w-7 p-0 border-0 bg-background/80 shadow-sm"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }}
-                          >
-                            <FolderTree className="h-3.5 w-3.5 mx-auto text-muted-foreground" />
-                          </SelectTrigger>
-                          <SelectContent align="end">
-                            <SelectItem value="__none__" className="text-xs">
-                              Ungrouped
-                            </SelectItem>
-                            {resourceGroups.map((g) => (
-                              <SelectItem key={g.id} value={g.id} className="text-xs">
-                                {g.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <div className="inline-flex">
+                                <Select
+                                  value={resource?.groupId ?? "__none__"}
+                                  onValueChange={(v: string | null) => {
+                                    if (!v) return;
+                                    assignResourceToGroup(
+                                      product.id,
+                                      svc.id,
+                                      v === "__none__" ? null : v
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger
+                                    className="h-8 min-w-[2rem] gap-1 px-2 border border-border/60 bg-background/95 shadow-sm backdrop-blur-sm rounded-md hover:bg-muted/60"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    <FolderTree className="h-4 w-4 text-primary shrink-0" />
+                                    <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+                                  </SelectTrigger>
+                                  <SelectContent align="end">
+                                    <SelectItem value="__none__" className="text-xs">
+                                      Ungrouped
+                                    </SelectItem>
+                                    {resourceGroups.map((g) => (
+                                      <SelectItem key={g.id} value={g.id} className="text-xs">
+                                        <span className="flex items-center gap-2">
+                                          <span
+                                            className="h-2 w-2 rounded-full shrink-0"
+                                            style={{ backgroundColor: g.color ?? product.color }}
+                                          />
+                                          {g.name}
+                                        </span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>Move to group</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger>
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="icon"
-                              className="h-7 w-7 hover:bg-red-500/10 hover:text-red-500"
+                              className="h-8 w-8 border-border/60 bg-background/95 shadow-sm backdrop-blur-sm hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30"
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                handleRemoveResource(svc.id);
+                                handleRemoveResource(
+                                  svc.id,
+                                  getDisplayTitle(svc.name, svc.type)
+                                );
                               }}
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Remove resource</TooltipContent>
@@ -982,7 +1135,15 @@ export default function ProductPage() {
       )}
 
       {/* ── Resource Management Dialog ── */}
-      <Dialog open={showResourceDialog} onOpenChange={setShowResourceDialog}>
+      <Dialog
+        open={showResourceDialog}
+        onOpenChange={(open) => {
+          setShowResourceDialog(open);
+          if (open && product) {
+            setPendingAssignments(new Set(product.resources.map((r) => r.serviceId)));
+          }
+        }}
+      >
         <DialogContent className="w-auto min-w-[600px] max-w-[90vw] max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Manage Resources</DialogTitle>
@@ -1037,7 +1198,7 @@ export default function ProductPage() {
                   return (
                     <div
                       key={svc.id}
-                      className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                      className={`grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 p-3 rounded-lg transition-colors ${
                         assigned
                           ? "bg-primary/5 border border-primary/20"
                           : "hover:bg-muted/50 border border-transparent"
@@ -1046,28 +1207,29 @@ export default function ProductPage() {
                       <div className="h-8 w-8 rounded-md bg-muted/50 flex items-center justify-center flex-shrink-0">
                         <Icon className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <div className="min-w-0 overflow-hidden">
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger>
                               <p className="text-sm font-medium truncate">{svc.name}</p>
                             </TooltipTrigger>
-                            <TooltipContent side="top" align="start">
-                              <p className="text-xs font-mono">{svc.id}</p>
+                            <TooltipContent side="top" align="start" className="max-w-sm">
+                              <p className="text-xs font-medium">{svc.name}</p>
+                              <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{svc.id}</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground truncate">
                           {svc.type} · {svc.namespace} · {svc.region}
                         </p>
                       </div>
-                      <Badge variant="outline" className="text-[10px] px-2 py-0 h-5 flex-shrink-0">
+                      <Badge variant="outline" className="text-[10px] px-2 py-0 h-5 flex-shrink-0 hidden sm:inline-flex">
                         {svc.type}
                       </Badge>
                       <Button
                         variant={assigned ? "default" : "outline"}
                         size="sm"
-                        className="h-8 shrink-0"
+                        className="h-8 shrink-0 whitespace-nowrap"
                         onClick={() => handleToggleResource(svc)}
                       >
                         {assigned ? (
@@ -1091,9 +1253,9 @@ export default function ProductPage() {
 
           <DialogFooter className="flex items-center justify-between border-t border-border/50 pt-4">
             <div className="text-xs text-muted-foreground">
-              {allServices.length} resources total · {product.resources.length} assigned
+              {allServices.length} resources total · {pendingAssignments.size} assigned
             </div>
-            <Button variant="outline" onClick={() => setShowResourceDialog(false)}>
+            <Button variant="outline" onClick={applyResourceAssignments}>
               Done
             </Button>
           </DialogFooter>
@@ -1105,14 +1267,22 @@ export default function ProductPage() {
         open={showGroupDialog}
         onOpenChange={(open) => {
           setShowGroupDialog(open);
+          if (open && product) {
+            const map: Record<string, string | null> = {};
+            for (const r of product.resources) {
+              map[r.serviceId] = r.groupId ?? null;
+            }
+            setPendingGroupMap(map);
+          }
           if (!open) {
             setEditingGroupId(null);
             setEditingGroupName("");
+            setEditingGroupColor(PRODUCT_COLORS[0]);
             setNewGroupName("");
           }
         }}
       >
-        <DialogContent className="w-auto min-w-[560px] max-w-[90vw] max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-[480px] w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col gap-0">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FolderTree className="h-4 w-4 text-primary" />
@@ -1124,7 +1294,7 @@ export default function ProductPage() {
           </DialogHeader>
 
           {/* Create group */}
-          <div className="space-y-2 py-2 border-b border-border/50">
+          <div className="space-y-3 py-3 border-b border-border/50">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               New group
             </p>
@@ -1133,26 +1303,24 @@ export default function ProductPage() {
                 placeholder="Group name…"
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
-                className="h-9 text-sm flex-1"
+                className="h-9 text-sm flex-1 min-w-0"
                 onKeyDown={(e) => e.key === "Enter" && handleCreateGroup()}
               />
-              <div className="flex items-center gap-1">
-                {PRODUCT_COLORS.slice(0, 6).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    className={`h-5 w-5 rounded-full ring-2 transition-all ${
-                      newGroupColor === c ? "ring-primary scale-110" : "ring-transparent opacity-70 hover:opacity-100"
-                    }`}
-                    style={{ backgroundColor: c }}
-                    onClick={() => setNewGroupColor(c)}
-                  />
-                ))}
-              </div>
-              <Button size="sm" className="h-9" onClick={handleCreateGroup} disabled={!newGroupName.trim()}>
+              <Button
+                size="sm"
+                className="h-9 shrink-0"
+                onClick={handleCreateGroup}
+                disabled={!newGroupName.trim()}
+              >
                 <Plus className="h-3.5 w-3.5 mr-1" />
                 Create
               </Button>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Color
+              </p>
+              <GroupColorPicker selected={newGroupColor} onChange={setNewGroupColor} />
             </div>
           </div>
 
@@ -1169,54 +1337,85 @@ export default function ProductPage() {
                   return (
                     <div
                       key={group.id}
-                      className="flex items-center gap-2 p-3 rounded-lg border border-border/50 bg-muted/20"
+                      className="rounded-lg border border-border/50 bg-muted/20 p-3"
                     >
-                      <div
-                        className="h-3 w-3 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: group.color ?? product.color }}
-                      />
                       {isEditing ? (
-                        <Input
-                          value={editingGroupName}
-                          onChange={(e) => setEditingGroupName(e.target.value)}
-                          className="h-8 text-sm flex-1"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSaveGroupRename(group.id);
-                            if (e.key === "Escape") setEditingGroupId(null);
-                          }}
-                        />
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div
+                              className="h-4 w-4 rounded-full flex-shrink-0 ring-2 ring-primary/30"
+                              style={{ backgroundColor: editingGroupColor }}
+                            />
+                            <Input
+                              value={editingGroupName}
+                              onChange={(e) => setEditingGroupName(e.target.value)}
+                              className="h-8 text-sm flex-1 min-w-0"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveGroupEdit(group.id);
+                                if (e.key === "Escape") cancelEditingGroup();
+                              }}
+                            />
+                            <Badge variant="outline" className="text-[10px] h-5 flex-shrink-0">
+                              {count} {count === 1 ? "resource" : "resources"}
+                            </Badge>
+                          </div>
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                              Color
+                            </p>
+                            <GroupColorPicker
+                              selected={editingGroupColor}
+                              onChange={setEditingGroupColor}
+                            />
+                          </div>
+                          <div className="flex justify-end gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                              onClick={cancelEditingGroup}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="h-7"
+                              onClick={() => handleSaveGroupEdit(group.id)}
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
                       ) : (
-                        <span className="text-sm font-medium flex-1 truncate">{group.name}</span>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="h-3 w-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: group.color ?? product.color }}
+                          />
+                          <span className="text-sm font-medium flex-1 truncate">{group.name}</span>
+                          <Badge variant="outline" className="text-[10px] h-5 flex-shrink-0">
+                            {count} {count === 1 ? "resource" : "resources"}
+                          </Badge>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={() => startEditingGroup(group)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 hover:text-red-500 hover:bg-red-500/10"
+                            onClick={() => deleteResourceGroup(product.id, group.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       )}
-                      <Badge variant="outline" className="text-[10px] h-5 flex-shrink-0">
-                        {count} {count === 1 ? "resource" : "resources"}
-                      </Badge>
-                      {isEditing ? (
-                        <Button size="sm" variant="default" className="h-7" onClick={() => handleSaveGroupRename(group.id)}>
-                          Save
-                        </Button>
-                      ) : (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => {
-                            setEditingGroupId(group.id);
-                            setEditingGroupName(group.name);
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 hover:text-red-500 hover:bg-red-500/10"
-                        onClick={() => deleteResourceGroup(product.id, group.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
                     </div>
                   );
                 })}
@@ -1244,18 +1443,23 @@ export default function ProductPage() {
                       >
                         <span className="text-xs truncate flex-1 min-w-0">{label}</span>
                         <Select
-                          value={resource.groupId ?? "__none__"}
+                          value={pendingGroupMap[resource.serviceId] ?? "__none__"}
                           onValueChange={(v: string | null) => {
                             if (!v) return;
-                            assignResourceToGroup(
-                              product.id,
-                              resource.serviceId,
-                              v === "__none__" ? null : v
-                            );
+                            setPendingGroupMap((prev) => ({
+                              ...prev,
+                              [resource.serviceId]: v === "__none__" ? null : v,
+                            }));
                           }}
                         >
-                          <SelectTrigger className="h-8 w-40 text-xs">
-                            <SelectValue placeholder="Group" />
+                          <SelectTrigger className="h-8 w-44 text-xs">
+                            <SelectValue placeholder="Choose group">
+                              {(() => {
+                                const gid = pendingGroupMap[resource.serviceId];
+                                if (!gid) return "Ungrouped";
+                                return resourceGroups.find((g) => g.id === gid)?.name ?? "Ungrouped";
+                              })()}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__none__" className="text-xs">
@@ -1277,8 +1481,32 @@ export default function ProductPage() {
           </div>
 
           <DialogFooter className="border-t border-border/50 pt-4">
-            <Button variant="outline" onClick={() => setShowGroupDialog(false)}>
+            <Button variant="outline" onClick={applyGroupAssignments}>
               Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Remove Resource Confirmation ── */}
+      <Dialog open={!!resourceToRemove} onOpenChange={(open) => !open && setResourceToRemove(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Remove Resource
+            </DialogTitle>
+            <DialogDescription>
+              Remove &quot;{resourceToRemove?.label}&quot; from {product.name}? Custom panels
+              configured for this resource will also be removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResourceToRemove(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmRemoveResource}>
+              Remove Resource
             </Button>
           </DialogFooter>
         </DialogContent>

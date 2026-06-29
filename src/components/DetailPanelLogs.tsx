@@ -173,7 +173,7 @@ export function DetailPanelLogs({
                           className={`px-4 py-2 align-top font-mono text-[11px] ${
                             col === "@timestamp"
                               ? "text-muted-foreground whitespace-nowrap text-[10px]"
-                              : "break-all whitespace-pre-wrap"
+                              : "text-foreground break-all whitespace-pre-wrap"
                           }`}
                         >
                           {col === "@timestamp"

@@ -127,4 +127,11 @@
   html {
     @apply font-sans;
   }
+
+  /* Recharts axis labels: theme uses oklch vars — SVG ticks need var() directly, not hsl(var()). */
+  .recharts-cartesian-axis-tick text,
+  .recharts-cartesian-axis-tick-value {
+    fill: var(--foreground) !important;
+    font-weight: 400 !important;
+  }
 }

@@ -22,6 +22,7 @@ import {
   buildMetricsQueryParams,
   type MetricSeriesResult,
 } from "@/lib/cloudwatch-query";
+import { formatServiceHeaderTitle, CHART_AXIS_TICK, CHART_THEME } from "@/lib/display-utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -277,17 +278,17 @@ function EnhancedMetricChart({
                     <stop offset="95%" stopColor={chartColor} stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.border} opacity={0.3} />
                 <XAxis
                   dataKey="timestamp"
                   tickFormatter={formatTimestamp}
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tick={{ ...CHART_AXIS_TICK, fontSize: 10 }}
                   axisLine={false}
                   tickLine={false}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tick={{ ...CHART_AXIS_TICK, fontSize: 10 }}
                   axisLine={false}
                   tickLine={false}
                   width={50}
@@ -815,7 +816,7 @@ function ServiceDetailContent() {
                   </div>
                   <div>
                     <h1 className="text-xl font-bold">
-                      {service.type}: {service.name}
+                      {formatServiceHeaderTitle(service.name, service.type)}
                     </h1>
                     <p className="text-sm text-muted-foreground">
                       {service.namespace} • {service.region} • {service.type}
