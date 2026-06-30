@@ -39,6 +39,7 @@ import { transformLogRecords } from "@/lib/transforms";
 import type { PanelTransform } from "@/types/transforms";
 
 const TIME_RANGES = [
+  { value: "inherit", label: "Default (Inherit global)" },
   { value: "1h", label: "Last hour" },
   { value: "6h", label: "Last 6 hours" },
   { value: "24h", label: "Last 24 hours" },
@@ -63,6 +64,7 @@ interface LogQueryBuilderProps {
   credentialId: string;
   defaultLogGroups?: string[];
   serviceType?: string;
+  activeTimeRange?: string;
 }
 
 export function LogQueryBuilder({
@@ -73,13 +75,14 @@ export function LogQueryBuilder({
   credentialId,
   defaultLogGroups = [],
   serviceType,
+  activeTimeRange,
 }: LogQueryBuilderProps) {
   const [title, setTitle] = useState(initialPanel?.title ?? "");
   const [logGroupNames, setLogGroupNames] = useState<string[]>(
     initialPanel?.logGroupNames ?? defaultLogGroups
   );
   const [query, setQuery] = useState(initialPanel?.query ?? DEFAULT_LOGS_QUERY);
-  const [timeRange, setTimeRange] = useState(initialPanel?.timeRange ?? "24h");
+  const [timeRange, setTimeRange] = useState(initialPanel?.timeRange ?? "inherit");
   const [manualGroup, setManualGroup] = useState("");
 
   const [availableGroups, setAvailableGroups] = useState<LogGroupOption[]>([]);
@@ -101,7 +104,7 @@ export function LogQueryBuilder({
     setTitle(initialPanel?.title ?? "");
     setLogGroupNames(initialPanel?.logGroupNames ?? defaultLogGroups);
     setQuery(initialPanel?.query ?? DEFAULT_LOGS_QUERY);
-    setTimeRange(initialPanel?.timeRange ?? "24h");
+    setTimeRange(initialPanel?.timeRange ?? "inherit");
     setPreviewRecords([]);
     setHasPreview(false);
     setPreviewError(null);
@@ -155,6 +158,7 @@ export function LogQueryBuilder({
     if (!credentialId || logGroupNames.length === 0 || !query.trim()) return;
     setPreviewLoading(true);
     setPreviewError(null);
+    const queryTimeRange = timeRange === "inherit" ? (activeTimeRange || "24h") : timeRange;
     try {
       const res = await fetch("/api/aws/logs/query", {
         method: "POST",
@@ -163,7 +167,7 @@ export function LogQueryBuilder({
           credentialId,
           logGroupNames,
           query,
-          timeRange,
+          timeRange: queryTimeRange,
         }),
       });
       if (!res.ok) {

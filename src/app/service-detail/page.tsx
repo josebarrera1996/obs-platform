@@ -35,6 +35,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -460,6 +468,7 @@ function ServiceDetailContent() {
   >({});
   const [panelBuilderMode, setPanelBuilderMode] = useState<"metric" | "logs" | null>(null);
   const [editingPanel, setEditingPanel] = useState<ResourcePanel | undefined>(undefined);
+  const [panelToDelete, setPanelToDelete] = useState<string | null>(null);
 
   // Fetch the service from AWS
   const fetchService = useCallback(async () => {
@@ -629,7 +638,7 @@ function ServiceDetailContent() {
             credentialId: activeCredentialId,
             logGroupNames: panel.logGroupNames,
             query: panel.query,
-            timeRange: panel.timeRange ?? timeRange,
+            timeRange: panel.timeRange === "inherit" || !panel.timeRange ? timeRange : panel.timeRange,
           }),
         });
         if (!res.ok) {
@@ -694,7 +703,12 @@ function ServiceDetailContent() {
   };
 
   const handleRemovePanel = (panelId: string) => {
-    if (!productContext) return;
+    setPanelToDelete(panelId);
+  };
+
+  const confirmRemovePanel = () => {
+    if (!panelToDelete || !productContext) return;
+    const panelId = panelToDelete;
     removePanel(productContext.product.id, productContext.resource.serviceId, panelId);
     setPanelData((prev) => {
       const copy = { ...prev };
@@ -706,6 +720,7 @@ function ServiceDetailContent() {
       delete copy[panelId];
       return copy;
     });
+    setPanelToDelete(null);
   };
 
   const refreshPanels = () => {
@@ -985,6 +1000,7 @@ function ServiceDetailContent() {
                             records={pd?.records ?? []}
                             loading={pd?.loading ?? true}
                             error={pd?.error}
+                            activeTimeRange={timeRange}
                             onEdit={() => {
                               setEditingPanel(panel);
                               setPanelBuilderMode("logs");
@@ -1206,8 +1222,31 @@ function ServiceDetailContent() {
           credentialId={activeCredentialId}
           defaultLogGroups={defaultLogGroups}
           serviceType={productContext.resource.type}
+          activeTimeRange={timeRange}
         />
       )}
+
+      <Dialog open={panelToDelete !== null} onOpenChange={(open) => !open && setPanelToDelete(null)}>
+        <DialogContent className="max-w-sm p-6">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-500 font-semibold text-base">
+              <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+              Confirm Deletion
+            </DialogTitle>
+            <DialogDescription className="pt-2 text-xs text-muted-foreground leading-relaxed">
+              Are you sure you want to delete this panel? This will permanently remove the configuration. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6 flex flex-row items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPanelToDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" onClick={confirmRemovePanel}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

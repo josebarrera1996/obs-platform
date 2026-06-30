@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { LogPanel } from "@/types/products";
 import type { LogRecord } from "@/lib/cloudwatch-logs";
 import { transformLogRecords } from "@/lib/transforms";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, PenLine, Trash2, ScrollText } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, PenLine, Trash2, ScrollText, Search, X } from "lucide-react";
 
 function formatLogTimestamp(ts: string | undefined): string {
   if (!ts) return "—";
@@ -32,6 +33,7 @@ interface DetailPanelLogsProps {
   records: LogRecord[];
   loading?: boolean;
   error?: string;
+  activeTimeRange?: string;
   onEdit?: () => void;
   onRemove?: () => void;
 }
@@ -41,6 +43,7 @@ export function DetailPanelLogs({
   records,
   loading,
   error,
+  activeTimeRange,
   onEdit,
   onRemove,
 }: DetailPanelLogsProps) {
@@ -87,6 +90,20 @@ export function DetailPanelLogs({
         ? Object.keys(displayRecords[0])
         : ["@timestamp", "@message"];
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredDisplayRecords = useMemo(() => {
+    if (!searchQuery.trim()) return displayRecords;
+    const q = searchQuery.toLowerCase().trim();
+    return displayRecords.filter((record) => {
+      return visibleColumns.some((col) => {
+        const val = record[col];
+        if (val === null || val === undefined) return false;
+        return String(val).toLowerCase().includes(q);
+      });
+    });
+  }, [displayRecords, searchQuery, visibleColumns]);
+
   return (
     <Card className="border-border/60 overflow-hidden lg:col-span-2">
       <CardContent className="p-0">
@@ -131,6 +148,34 @@ export function DetailPanelLogs({
           </div>
         )}
 
+        {!loading && !error && records.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-border/20 bg-muted/10">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
+              <Input
+                type="text"
+                placeholder="Filter logs by any visible field..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-8 h-8 text-xs bg-muted/40 border-border/40 focus-visible:ring-cyan-500/30"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {searchQuery && (
+              <Badge variant="secondary" className="text-[10px] h-6 flex-shrink-0">
+                {filteredDisplayRecords.length} found
+              </Badge>
+            )}
+          </div>
+        )}
+
         <div className="max-h-[360px] overflow-auto">
           {loading ? (
             <div className="flex items-center justify-center py-16">
@@ -141,6 +186,10 @@ export function DetailPanelLogs({
           ) : displayRecords.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               No log entries for this time range
+            </div>
+          ) : filteredDisplayRecords.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No log entries match search filter "{searchQuery}"
             </div>
           ) : (
             <table className="w-full text-xs">
@@ -157,7 +206,7 @@ export function DetailPanelLogs({
                 </tr>
               </thead>
               <tbody>
-                {displayRecords.map((record, i) => {
+                {filteredDisplayRecords.map((record, i) => {
                   const msg = getMessage(record);
                   const isError = /error|exception|fail|timeout/i.test(msg);
                   return (
@@ -190,8 +239,18 @@ export function DetailPanelLogs({
         </div>
 
         {!loading && !error && displayRecords.length > 0 && (
-          <div className="px-4 py-2 border-t border-border/40 text-[10px] text-muted-foreground">
-            {displayRecords.length} entries · {panel.timeRange || "24h"}
+          <div className="px-4 py-2 border-t border-border/40 text-[10px] text-muted-foreground flex justify-between items-center">
+            <div>
+              {searchQuery ? `${filteredDisplayRecords.length} of ` : ""}{displayRecords.length} entries · {panel.timeRange && panel.timeRange !== "inherit" ? panel.timeRange : (activeTimeRange || "24h")}
+            </div>
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="text-[10px] text-cyan-500 hover:underline"
+              >
+                Clear filter
+              </button>
+            )}
           </div>
         )}
       </CardContent>

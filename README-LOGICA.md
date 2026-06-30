@@ -15,6 +15,7 @@ src/lib/
 ├── storage.ts              # Encriptación AES-256-GCM y almacenamiento de credenciales AWS
 ├── slack.ts                # Utilidades de mensajería para Slack
 ├── external-health.ts      # Monitoreo y checks de salud de servicios externos
+├── cloudwatch-logs.ts      # Integración con CloudWatch Logs e Insights (query/polling)
 │
 ├── pipeline/               # ── PIPELINE DE DATOS ──
 │   ├── collector.ts        # Recolector de CloudWatch (AWS SDK v3)
@@ -28,8 +29,14 @@ src/lib/
 │   ├── correlation.ts      # Análisis de correlación entre métricas
 │   └── log-clustering.ts   # Agrupamiento semántico de logs (HDBSCAN-like)
 │
-└── alerts/                 # ── MOTOR DE ALERTAS ──
-    └── engine.ts           # Motor de reglas de alerta, umbrales y cooldowns
+├── alerts/                 # ── MOTOR DE ALERTAS ──
+│   └── engine.ts           # Motor de reglas de alerta, umbrales y cooldowns
+│
+└── transforms/             # ── MOTOR DE TRANSFORMACIONES (Grafana-style) ──
+    ├── frame.ts            # Conversión de series/logs a DataFrame y detección de vistas
+    ├── engine.ts           # Orquestador y ejecución secuencial del pipeline de transforms
+    ├── sql-runner.ts       # Motor SQL en memoria para queries sobre DataFrames
+    └── index.ts            # Exportador y helpers para series temporales y logs
 ```
 
 ---
@@ -140,6 +147,72 @@ flowchart TD
 
 ---
 
+## 🪵 5. Integración con CloudWatch Logs & Insights
+
+La plataforma permite explorar y visualizar logs directamente desde AWS CloudWatch. Esta funcionalidad está soportada por el SDK `@aws-sdk/client-cloudwatch-logs` en [cloudwatch-logs.ts](file:///c:/Users/AMD/Documents/Trabajo/Garage%20Deep%20Analytics%20%28Trabajo%29/Trabajo%20%28Proyectos%29/OBS/obs-platform/src/lib/cloudwatch-logs.ts).
+
+### Arquitectura de Consulta (Polling Asíncrono)
+Debido a que CloudWatch Logs Insights ejecuta las consultas de forma asíncrona en AWS, el backend implementa un mecanismo de sondeo:
+
+```mermaid
+flowchart TD
+    A[Cliente: POST /api/aws/logs/query] --> B[cloudwatch-logs.ts: runLogsInsightsQuery]
+    B --> C[StartQueryCommand]
+    C -->|Retorna queryId| D[Loop de Polling]
+    D --> E[Esperar 600ms]
+    E --> F[GetQueryResultsCommand con queryId]
+    F --> G{¿Estado es Complete?}
+    G -->|No / Running| D
+    G -->|Sí| H[Parsear resultados a LogRecord[] y retornar]
+    G -->|Failed / Cancelled| I[Lanzar Error]
+```
+
+### Endpoints de API:
+*   `GET /api/aws/logs/groups`: Retorna la lista de grupos de logs de CloudWatch. Soporta parámetros como `prefix` para filtrar por nombre (ej: `/aws/lambda/`) y `limit`.
+*   `POST /api/aws/logs/query`: Inicia la consulta y realiza el polling. Acepta en su body `credentialId`, `logGroupNames` (array), `query` (CloudWatch QL), y `timeRange` (ej: `1h`, `6h`, `24h`, `7d`).
+
+### Soporte en Paneles (`LogPanel`):
+El sistema de configuración de paneles se extendió a través de la interfaz `LogPanel` en [src/types/products.ts](file:///c:/Users/AMD/Documents/Trabajo/Garage%20Deep%20Analytics%20%28Trabajo%29/Trabajo%20%28Proyectos%29/OBS/obs-platform/src/types/products.ts). Esto permite la creación de paneles dedicados a logs, con consultas predefinidas como:
+*   `DEFAULT_LOGS_QUERY`: Muestra `@timestamp` y `@message` ordenados en orden descendente.
+*   `ERROR_LOGS_QUERY`: Filtra los logs utilizando una expresión regular para detectar términos comunes de error como `error`, `exception`, `fail` o `timeout`.
+
+---
+
+## 🔄 6. Motor de Transformaciones de Datos (Grafana-style)
+
+Para permitir una manipulación de datos flexible y desacoplada de las consultas raw en CloudWatch, `ObsPlatform` incorpora un motor de transformaciones en caliente basado en el concepto de paneles de Grafana. Este motor opera completamente en memoria sobre una estructura unificada llamada `DataFrame`.
+
+### Pipeline de Transformación
+Cuando llegan datos de CloudWatch (ya sean métricas o logs), pasan por el siguiente flujo de procesamiento antes de renderizarse:
+
+```mermaid
+flowchart LR
+    A[Series/Logs de CloudWatch] --> B[frame.ts: seriesToDataFrame / logsToDataFrame]
+    B -->|DataFrame original| C[engine.ts: applyTransformPipeline]
+    C -->|Ejecuta transformaciones secuenciales| D[DataFrame transformado]
+    D --> E[frame.ts: detectViewMode]
+    E -->|Muestra recomendada| F{ViewMode}
+    F -->|timeseries| G[dataFrameToChart / dataFrameToSeries]
+    F -->|table / stat| H[Renderizar Tabla o Stat Panel]
+```
+
+### Catálogo de Transformaciones Soportadas:
+El archivo [src/types/transforms.ts](file:///c:/Users/AMD/Documents/Trabajo/Garage%20Deep%20Analytics%20%28Trabajo%29/Trabajo%20%28Proyectos%29/OBS/obs-platform/src/types/transforms.ts) define las interfaces para cada transformación, las cuales se implementan en [engine.ts](file:///c:/Users/AMD/Documents/Trabajo/Garage%20Deep%20Analytics%20%28Trabajo%29/Trabajo%20%28Proyectos%29/OBS/obs-platform/src/lib/transforms/engine.ts):
+
+1.  **Filtrar por valor (`filterByValue`):** Descarta filas evaluando condiciones en columnas basadas en operadores lógicos (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `regex`, `isNull`, `isNotNull`).
+2.  **Organizar campos (`organizeFields`):** Permite renombrar columnas, reordenarlas y ocultar aquellas que no se deseen mostrar en la interfaz.
+3.  **Extraer campos (`extractFields`):** Procesa una columna que contenga texto plano e infiere nuevas columnas a partir de ella. Soporta formato `json` (parseo de llaves/valores) y `regex` (mapeo de grupos de captura como nuevas columnas).
+4.  **Agrupar por (`groupBy`):** Agrupa los registros basándose en una o más columnas clave y calcula agregados en los demás campos (`avg`, `sum`, `min`, `max`, `count`, `first`, `last`).
+5.  **SQL en Memoria (`sql`):** Ejecuta sentencias SQL directamente sobre el dataset en memoria a través de [sql-runner.ts](file:///c:/Users/AMD/Documents/Trabajo/Garage%20Deep%20Analytics%20%28Trabajo%29/Trabajo%20%28Proyectos%29/OBS/obs-platform/src/lib/transforms/sql-runner.ts). Soporta:
+    *   `SELECT` (con alias de columnas y funciones de agregación).
+    *   `FROM A` (donde la tabla `A` representa el DataFrame de entrada).
+    *   `WHERE` (con operadores lógicos y combinaciones `AND`).
+    *   `GROUP BY`, `ORDER BY` (con dirección `ASC`/`DESC`) y `LIMIT`.
+6.  **Unir/Combinar (`join`):** Mezcla múltiples series temporales o registros basándose en una columna clave en común (por ejemplo, el campo `timestamp` o `@timestamp`). Soporta modos `inner` y `outer`.
+7.  **Reducir (`reduce`):** Reduce una serie temporal a un único valor escalar descriptivo (por ejemplo, obtener el promedio total, la suma, el valor máximo o el primer/último elemento).
+
+---
+
 ## 🛠️ Guía para Agregar Nuevas Funcionalidades
 
 ### A. Cómo añadir un nuevo namespace de AWS a monitorear
@@ -163,6 +236,12 @@ Si deseas introducir un nuevo algoritmo (ej: basado en media móvil exponencial 
        // dispatch a PagerDuty
     }
     ```
+
+### D. Cómo añadir un nuevo tipo de transformación de datos
+1.  **Definir Tipos:** Agrega la definición del tipo de transformación en el enum `TransformType` y su correspondiente interfaz extendida en [src/types/transforms.ts](file:///c:/Users/AMD/Documents/Trabajo/Garage%20Deep%20Analytics%20%28Trabajo%29/Trabajo%20%28Proyectos%29/OBS/obs-platform/src/types/transforms.ts). Registra su entrada descriptiva en `TRANSFORM_CATALOG` y crea sus valores iniciales en `createDefaultTransform`.
+2.  **Implementar Algoritmo:** Crea la lógica de procesamiento en una función dedicada (ej: `applyMyNewTransform`) dentro de [src/lib/transforms/engine.ts](file:///c:/Users/AMD/Documents/Trabajo/Garage%20Deep%20Analytics%20%28Trabajo%29/Trabajo%20%28Proyectos%29/OBS/obs-platform/src/lib/transforms/engine.ts).
+3.  **Registrar en Engine:** Llama a tu función dentro del switch de `applyTransform` en `engine.ts`.
+4.  **UI Editor (Opcional):** Si la transformación requiere controles específicos en el portal, añade su correspondiente interfaz de edición en el componente `TransformPipelineEditor.tsx`.
 
 ---
 
